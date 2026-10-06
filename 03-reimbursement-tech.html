@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 · บัญชีลูกหนี้ / งานเรียกเก็บ — HA.OS Module Flow</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="m3">
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <p class="crumb"><a href="index.html">หน้าแรก</a> › HA.OS หลัก › 03 บัญชีลูกหนี้ / เรียกเก็บ</p>
+
+  <div class="page-head">
+    <h1>03 · บัญชีลูกหนี้ / งานเรียกเก็บ (Reimbursement)</h1>
+    <p>โมดูล “งานเรียกเก็บ” (เมนู 22) รับช่วงต่อจากงานการเงิน โดยเอายอดส่วนที่ <b>สิทธิ/ต้นสังกัดต้องจ่าย</b>
+       มาตั้งเป็นลูกหนี้ จัดเข้ารอบส่งเบิก ส่งข้อมูลไป สปสช./MOPH Claim/FDH นำเข้าไฟล์ REP &amp; Statement
+       บันทึกรับชำระ และปิดบัญชี — เป็นวงจรที่ยาวที่สุดในระบบและมีขั้นตอนที่ห้ามข้ามอยู่หลายจุด</p>
+  </div>
+
+  <div class="toc">
+    <b>หัวข้อในหน้านี้</b>
+    <ol>
+      <li><a href="#lifecycle">วงจรลูกหนี้ทั้งระบบ</a></li>
+      <li><a href="#dash">Dashboard 3 ตัว</a></li>
+      <li><a href="#invoice">ขั้นที่ 1 — สร้างใบเรียกเก็บ</a></li>
+      <li><a href="#close">ขั้นที่ 2 — ปิดสิทธิ &amp; ปิดบัญชี</a></li>
+      <li><a href="#round">ขั้นที่ 3 — รอบส่งเบิก</a></li>
+      <li><a href="#send">ขั้นที่ 4 — ส่งเบิก สปสช. / MOPH Claim</a></li>
+      <li><a href="#import">ขั้นที่ 5 — Import REP / Statement</a></li>
+      <li><a href="#receive">ขั้นที่ 6 — บันทึกรับชำระ</a></li>
+      <li><a href="#status">ตารางสถานะและรหัสอ้างอิง</a></li>
+      <li><a href="#report">รายงาน</a></li>
+      <li><a href="#batch">Batch &amp; งานอัตโนมัติ</a></li>
+      <li><a href="#menu">เมนู · เส้นทาง · API</a></li>
+      <li><a href="#pitfall">ข้อควรระวัง</a></li>
+    </ol>
+  </div>
+
+  <div class="roles">
+    <span class="role"><b>สิทธิ:</b> <code>REIMBURSEMENT</code> และสิทธิย่อยอีกกว่า 10 ตัว</span>
+    <span class="role"><b>Root:</b> <code>/finance/reimbursement</code></span>
+    <span class="role"><b>ระบบภายนอก:</b> สปสช. · MOPH Claim · FDH</span>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="lifecycle">วงจรลูกหนี้ทั้งระบบ</h2>
+
+  <ul class="flow">
+    <li><b>1. Invoice</b><span>ตั้งลูกหนี้</span></li>
+    <li><b>2. ปิดสิทธิ</b><span>Close Right</span></li>
+    <li><b>3. ปิดบัญชี</b><span>Close Account</span></li>
+    <li><b>4. รอบส่งเบิก</b><span>Pre-audit → Round</span></li>
+    <li class="is-lis"><b>5. ส่งเบิก</b><span>สปสช./MOPH</span></li>
+    <li class="is-lis"><b>6. REP/Statement</b><span>ผลตรวจสอบ</span></li>
+    <li class="is-done"><b>7. รับชำระ</b><span>ตัดลูกหนี้</span></li>
+  </ul>
+
+  <div class="note">
+    <b class="note__label">ทำไมต้อง “ปิดสิทธิ” และ “ปิดบัญชี”</b>
+    <p><b>ปิดสิทธิ</b> = ยืนยันว่ารายการค่ารักษาของ Visit/Admit นั้นถูกจับคู่กับสิทธิเรียบร้อยแล้ว
+       ไม่มีการโอนสิทธิเพิ่ม · <b>ปิดบัญชี</b> = ยืนยันว่ายอดลูกหนี้ของงวดนั้นนิ่งแล้ว ไม่มีการเพิ่ม/ลดยอดอีก
+       ทั้งสองอย่างเป็นเงื่อนไขก่อนจะยกเข้ารอบส่งเบิกได้ — รายการที่ยังไม่ปิดจะตกหล่นจากรอบ</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="dash">Dashboard 3 ตัว</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมนู</th><th>เส้นทาง</th><th>ดูอะไร</th></tr></thead>
+    <tbody>
+      <tr><td>Dashboard</td><td><code>/finance/reimbursement/dashboard</code></td>
+          <td>ภาพรวมงานเรียกเก็บรายวัน — <code>GET /api/Reimbursement/DashboardReimbursement</code></td></tr>
+      <tr><td>Summary Dashboard</td><td><code>/finance/reimbursement/summary-dashboard</code></td>
+          <td>สรุปเชิงสถิติ: จำนวน Visit, ยอดตามกลุ่มสิทธิ, ยอดเรียกเก็บ, เปรียบเทียบรายเดือน/รายปี
+              (<code>GetSummaryTotalVisitsDashboard</code>, <code>GetSummarySumRightGroupDashboard</code>,
+               <code>GetSummaryBillingDashboard</code>, <code>GetSummaryMonthlyDashboard</code>, <code>GetSummaryYearlyDashboard</code>)</td></tr>
+      <tr><td>Dashboard MophClaim</td><td><code>/finance/reimbursement/dashboard-mophclaim</code></td>
+          <td>สถานะการส่งข้อมูลไป MOPH Claim — สิทธิ <code>REIMBURSEMENT_REIMBURSE_MOPHCLAIM_DASHBOARD</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="invoice">ขั้นที่ 1 — สร้างใบเรียกเก็บ (Invoice)</h2>
+
+  <p><code>/finance/reimbursement/opd/create-invoice</code> · <code>/finance/reimbursement/ipd/create-invoice</code>
+     · API <code>POST /api/Bill/CreateInvoice</code> · สิทธิ <code>REIMBURSEMENT_OPD_REIMBURSE</code></p>
+
+  <ol class="steps">
+    <li>
+      <b>ตรวจสอบสิทธิของ Visit/Admit</b>
+      <p><code>/opd/rights</code> (<code>REIMBURSEMENT_CHECK_OPD_RIGHT</code>) หรือ
+         <code>/ipd/rights</code> (<code>REIMBURSEMENT_CHECK_IPD_RIGHT</code>)
+         — ยืนยันสิทธิ, สถานพยาบาลหลัก (<code>Hmain</code>) / รอง (<code>Hsub</code>), และสิทธิย่อยที่ใช้เบิก</p>
+    </li>
+    <li>
+      <b>ตรวจสรุปค่ารักษา</b>
+      <p><code>/opd/summary</code> · <code>/ipd/summary</code> — ดูรายการที่มียอด <code>CREDIT</code>/<code>REMINBURSE</code>
+         ซึ่งจะยกไปเป็นลูกหนี้ ถ้ายอดไม่ถูกให้ไปแก้ที่ <b>บันทึกปรับยอดเบิกได้</b> ก่อน</p>
+    </li>
+    <li>
+      <b>เพิ่มค่าใช้จ่าย Lab/X-Ray/Other ที่ตกหล่น</b>
+      <p><code>/opd/non-drug</code> · <code>/ipd/non-drug</code> — สิทธิ <code>REIMBURSEMENT_*_NON_DRUG_CHARGE</code></p>
+    </li>
+    <li>
+      <b>กรอกข้อมูลหัวใบเรียกเก็บ</b>
+      <p>ข้อมูลชุดนี้คือสิ่งที่ สปสช./ต้นสังกัดใช้ตรวจสอบ ต้องกรอกให้ครบ</p>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>กลุ่ม</th><th>ฟิลด์</th><th>หมายเหตุ</th></tr></thead>
+        <tbody>
+          <tr><td>สิทธิ</td><td><code>RightId</code>, <code>OpdRightId</code>/<code>AdmitRightId</code>, <code>Insid</code>, <code>Relinscl</code></td><td>สิทธิและความสัมพันธ์ผู้มีสิทธิ</td></tr>
+          <tr><td>สถานพยาบาล</td><td><code>Hmain</code>, <code>Hsub</code>, <code>HmainOp</code></td><td>รหัส 5 หลัก</td></tr>
+          <tr><td>ประเภทการเคลม</td><td><code>Claimtype</code>, <code>Claimcode</code>, <code>IpdClaimCode</code></td><td>ดู <a href="#status">ตารางรหัส</a></td></tr>
+          <tr><td>อุบัติเหตุ/ฉุกเฉิน</td><td><code>Aetype</code>, <code>Emtype</code>, <code>AeDate</code>, <code>AeCar</code>, <code>AeLitigant</code></td><td>เฉพาะเคส AE/EM</td></tr>
+          <tr><td>ต้นสังกัด (ข้าราชการ)</td><td><code>OwnerName</code>, <code>Govname</code>, <code>Govcode</code>, <code>Ownrightpid</code>, <code>OwnrightPosition</code></td><td>เจ้าของสิทธิ + หน่วยงาน</td></tr>
+          <tr><td>เอกสาร</td><td><code>DocumentNo</code>, <code>DocumentDate</code>, <code>BookNo</code>, <code>RunNo</code></td><td>เลขที่ใบเรียกเก็บ</td></tr>
+          <tr><td>Refer</td><td><code>Referno</code>, <code>ReferId</code>, <code>ReferNoOut</code>, <code>ReferHospOut</code>, <code>ReferOut</code></td><td>เคสส่งต่อ</td></tr>
+          <tr><td>ผ่อนชำระ</td><td><code>Installment</code>, <code>InstallmentTerm/Rate/Start/End</code></td><td>กรณีให้ผู้ป่วยผ่อน</td></tr>
+          <tr><td>สูติกรรม</td><td><code>OPTYPE</code>, <code>GRAVIDA</code>, <code>GA_WEEK</code>, <code>LMP_Date</code>, <code>BI</code></td><td>สำหรับเคสคลอด/ADL</td></tr>
+          <tr><td>รอบ</td><td><code>RoundId</code></td><td>ถ้าระบุตั้งแต่ตอนสร้างจะเข้ารอบทันที</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </li>
+    <li>
+      <b>เลือกรายการค่าใช้จ่ายเข้าใบเรียกเก็บ</b>
+      <p><code>BillGroupList[]</code> — จัดกลุ่มตาม Bill Group ระบบรวมยอด <code>Total</code>, <code>Claim</code>,
+         <code>Copay</code>, <code>Discount</code> ให้เอง และ <code>Payment = Claim − Discount</code></p>
+    </li>
+    <li>
+      <b>บันทึก</b>
+      <p>สร้างใบเรียกเก็บ <code>BillType = 2</code> (Charged) พร้อมตั้ง <code>BillStatus</code> เริ่มต้น</p>
+    </li>
+  </ol>
+
+  <h3>Hybrid Invoice</h3>
+  <p><code>/finance/reimbursement/opd|ipd/hybrid-invoice</code> — สำหรับ Visit/Admit ที่ต้องแยกเรียกเก็บหลายผู้จ่าย
+     (เช่น สิทธิหลัก + ประกัน + ผู้ป่วยจ่ายเอง) สร้างได้หลาย Invoice จาก Service/Admit เดียว</p>
+
+  <h3>ตรวจสอบ / แก้ไขการเรียกเก็บ</h3>
+  <p><code>/finance/reimbursement/cancel-invoice</code> · API <code>POST /api/Reimbursement/EditInvoice</code>
+     · สิทธิ <code>REIMBURSEMENT_REIMBURSE_PAYMENT</code> — แก้ไขข้อมูลหัวใบ หรือยกเลิกใบเรียกเก็บ
+     (ยกเลิกได้เฉพาะใบที่ยังไม่รับชำระและยังไม่ปิดรอบ)</p>
+
+  <!-- ================================================================== -->
+  <h2 id="close">ขั้นที่ 2 — ปิดสิทธิ &amp; ปิดบัญชี</h2>
+
+  <h3>2.1 ตรวจสอบรายการที่ยังไม่ปิดสิทธิ</h3>
+  <p><code>/finance/reimbursement/verify-claim/close-right</code></p>
+  <ul>
+    <li>แสดงรายการที่ยัง “ไม่ปิดสิทธิ” พร้อมยอด เบิกได้ / เบิกไม่ได้</li>
+    <li>ปิดสิทธิได้ทั้งแบบรายการเดียวและแบบเลือกหลายรายการ</li>
+    <li>รายการที่ยังไม่ปิดสิทธิ <b>จะไม่ถูกดึงเข้ารอบส่งเบิก</b></li>
+  </ul>
+
+  <h3>2.2 การบัญชีผู้ป่วยนอก / ผู้ป่วยใน (ปิดบัญชี)</h3>
+  <p><code>/finance/reimbursement/close-account-opd</code> · <code>close-account-ipd</code></p>
+  <ol class="steps steps--blue">
+    <li><b>ดูรายการที่ยังไม่ปิดบัญชี</b><p><code>GET /api/Reimbursement/GetNotCloseAccountList</code></p></li>
+    <li><b>ปิดบัญชี</b>
+      <p>เลือกได้ 2 แบบ:</p>
+      <ul>
+        <li><code>PUT /api/Reimbursement/CloseAccountByParams</code> — ปิดตามเงื่อนไขค้นหา (ทั้งชุด)</li>
+        <li><code>POST /api/Reimbursement/CloseAccountByIdList</code> — ปิดเฉพาะรายการที่เลือก</li>
+      </ul></li>
+    <li><b>ตรวจรายการที่ปิดแล้ว</b><p><code>GET /api/Reimbursement/GetCloseAccountList</code></p></li>
+    <li><b>ยกเลิกการปิดบัญชี (ถ้าจำเป็น)</b>
+      <p><code>PUT CancelCloseAccountByParams</code> · <code>POST CancelCloseAccountByIdList</code>
+         — ทำได้เฉพาะก่อนที่ใบนั้นจะเข้ารอบส่งเบิกและถูกส่งออกไปแล้ว</p></li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="round">ขั้นที่ 3 — รอบส่งเบิก (Bill Round)</h2>
+
+  <h3>3.1 ตรวจสอบรอบก่อนส่งเบิก (Pre-audit)</h3>
+  <p><code>/finance/reimbursement/pre-audit-bill-rounds</code> · สิทธิ <code>REIMBURSEMENT_REIMBURSE_ROUND</code></p>
+  <p>ตรวจความถูกต้องของข้อมูลก่อนปิดรอบ — เป็นด่านสุดท้ายที่ยังแก้ไขได้ง่าย
+     ควรตรวจอย่างน้อย: สิทธิถูกต้อง · Hmain/Hsub ครบ · Claimtype ตรงกับลักษณะการมารับบริการ ·
+     รหัสวินิจฉัย/หัตถการครบ · ยอดเบิกได้ไม่เป็นศูนย์โดยไม่ตั้งใจ</p>
+
+  <h3>3.2 ตรวจสอบรอบส่งเบิก</h3>
+  <p><code>/finance/reimbursement/bill-rounds</code> — รายการใบเรียกเก็บในรอบ พร้อมยอดรวม
+     เมื่อยืนยันแล้วจึงปิดรอบเพื่อส่งออก</p>
+
+  <h3>3.3 เปลี่ยนรอบส่งเบิก</h3>
+  <p><code>/finance/reimbursement/verify-claim/change-disbursement-cycle</code> —
+     ย้ายใบเรียกเก็บจากรอบหนึ่งไปอีกรอบ (เช่น ตกหล่นจากรอบก่อน หรือถูกปฏิเสธแล้วต้องส่งรอบถัดไป)</p>
+
+  <h3>3.4 บันทึกเลื่อนรอบการเรียกเก็บ (Upload)</h3>
+  <p><code>/finance/reimbursement/round-upload</code> · สิทธิ <code>REIMBURSEMENT_REIMBURSE_ROUND_CHANGE</code>
+     · API <code>POST /api/Reimbursement/ImportRound</code> — อัปโหลดไฟล์รายการที่จะเลื่อนรอบเป็นชุดใหญ่
+     และ <code>GET /api/Reimbursement/ExportRound</code> เพื่อดาวน์โหลดผลลัพธ์/แม่แบบ</p>
+
+  <!-- ================================================================== -->
+  <h2 id="send">ขั้นที่ 4 — ส่งเบิก สปสช. / MOPH Claim</h2>
+
+  <h3>4.1 ตรวจสอบการส่งเบิก (Booking Claim)</h3>
+  <p><code>/finance/reimbursement/verify-claim/booking-claim</code></p>
+  <p>หน้าจอนี้แบ่งเป็นแท็บตามสถานะของ pipeline</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>แท็บ</th><th>ดูอะไร</th></tr></thead>
+    <tbody>
+      <tr><td>ทั้งหมด</td><td>ทุกรายการในช่วงวันที่</td></tr>
+      <tr><td>ตรวจสอบ/ส่งจองเคลมใหม่</td><td>รายการที่ยังส่งไม่สำเร็จ กดส่งซ้ำได้</td></tr>
+      <tr><td>ตรวจสอบสถานะการปิดสิทธิ</td><td>รายการที่ติดเพราะยังไม่ปิดสิทธิ</td></tr>
+      <tr><td>ตรวจสอบสถานะการส่งเบิก</td><td>ผลการส่งเข้าระบบปลายทาง</td></tr>
+      <tr><td>ตรวจสอบสถานะจาก สปสช.</td><td>ผลตรวจสอบที่ได้กลับมา</td></tr>
+      <tr><td>ตรวจสอบสถานะการรับเงิน</td><td>สถานะการโอนเงิน</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>สถานะ Booking Claim (<code>eMophClaimStage</code>)</h4>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ค่า</th><th>Stage</th><th>กลุ่มที่แสดงบนจอ</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><span class="pill pill--gray">Enqueued</span></td><td rowspan="3">NotSuccess (ยังไม่สำเร็จ)</td></tr>
+      <tr><td>2</td><td><span class="pill pill--amber">InProgress</span></td></tr>
+      <tr><td>4</td><td><span class="pill pill--red">Failed</span></td></tr>
+      <tr><td>5</td><td><span class="pill pill--amber">WaitForRetry</span></td><td>NotSuccess</td></tr>
+      <tr><td>3</td><td><span class="pill pill--green">Succeeded</span></td><td>Success</td></tr>
+      <tr><td>6</td><td><span class="pill pill--gray">Canceled</span></td><td>Canceled</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>4.2 ปลายทางที่ระบบส่งข้อมูลออก</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ปลายทาง</th><th>Config section</th><th>ใช้ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td>MOPH Claim</td><td><code>MophClaim</code></td><td>ส่งข้อมูลเคลมรายวัน — Job <code>MophClaimJob</code></td></tr>
+      <tr><td>FDH — Reservation (จองเคลม)</td><td><code>MophFdh:BookingClaimUrl</code> / <code>BookingClaimUrlV2</code></td><td>จองสิทธิเคลมล่วงหน้า</td></tr>
+      <tr><td>FDH — Data Hub Total Visit</td><td><code>MophFdh:DataHubTotalVisitUrl</code></td><td>ส่งจำนวน Visit — Job <code>MophVisitFdhJob</code></td></tr>
+      <tr><td>FDH — Track Transaction</td><td><code>MophFdh:CheckTransUrl</code></td><td>ติดตามสถานะ — Job <code>MophCheckTransJob</code> (ทุก 3 นาที)</td></tr>
+      <tr><td>PHR</td><td><code>MophPhr:UpdatePHRv1</code></td><td>ส่งข้อมูลสุขภาพ — Job <code>MophSendPhrJob</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>4.3 ตรวจสอบการขอ Authen Code</h3>
+  <p><code>/finance/reimbursement/authen-code-lists</code> — ตรวจว่ารายการที่ต้องมี Authen Code
+     (การยืนยันตัวตนผู้รับบริการกับ สปสช.) ได้มาครบหรือยัง เพราะเป็นเงื่อนไขให้เคลมผ่าน</p>
+
+  <!-- ================================================================== -->
+  <h2 id="import">ขั้นที่ 5 — Import REP / Statement</h2>
+
+  <h3>5.1 Import REP</h3>
+  <p><code>/finance/reimbursement/verify-claim/import-rep</code> — นำเข้าไฟล์ REP (ผลการตรวจสอบข้อมูลเบิกจ่าย)
+     เพื่ออัปเดตว่าแต่ละรายการผ่าน/ไม่ผ่าน/ต้อง Verify</p>
+
+  <h4>ประเภท REP/Statement (<code>constRepStmType</code>)</h4>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ค่า</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td><code>Normal</code></td><td>รอบปกติ</td></tr>
+      <tr><td><code>Appeal</code></td><td>รอบอุทธรณ์</td></tr>
+      <tr><td><code>NormalDisabled</code></td><td>รอบปกติ — กลุ่มผู้พิการ</td></tr>
+      <tr><td><code>AppealDisabled</code></td><td>รอบอุทธรณ์ — กลุ่มผู้พิการ</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>5.2 Import Statement (UCS)</h3>
+  <p><code>/finance/reimbursement/verify-claim/import-statement</code> — นำเข้า Statement การโอนเงินจาก สปสช.
+     เพื่อจับคู่กับใบเรียกเก็บและตัดยอดลูกหนี้</p>
+
+  <h3>5.3 ลงบันทึกสถานะข้อมูลเรียกเก็บ (CSCD Upload)</h3>
+  <p><code>/finance/reimbursement/cscd-upload</code> · สิทธิ <code>REIMBURSEMENT_REIMBURSE_STATUS</code>
+     · API <code>POST /api/Reimbursement/ImportPaymentCscd</code></p>
+  <p>อัปโหลดไฟล์สถานะจ่ายเงินกรมบัญชีกลาง (CSCD) เพื่อปรับสถานะรายการ
+     และ <code>GET /api/Reimbursement/ExportReceivedPayment</code> เพื่อดาวน์โหลดผลการนำเข้า</p>
+
+  <div class="note note--warn">
+    <b class="note__label">อัตราจ่ายกรมบัญชีกลางกับยอดที่ผู้ป่วยต้องจ่าย</b>
+    <p>ในหน้าออกใบเสร็จมีตรรกะที่หัก <code>cashNotReturn</code> ตาม <code>cscdRate</code> —
+       ถ้าอัตรา CSCD ในระบบไม่ตรงกับความจริง ยอด “เบิกได้/เบิกไม่ได้” จะเพี้ยนตั้งแต่ต้นทาง
+       ควรตรวจข้อมูลอัตราให้ตรงก่อนเปิดใช้งานจริง</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="receive">ขั้นที่ 6 — บันทึกรับชำระ &amp; ตัดลูกหนี้</h2>
+
+  <h3>6.1 บันทึกรับชำระเงิน</h3>
+  <p><code>/finance/reimbursement/receive-payment</code> · สิทธิ <code>REIMBURSEMENT_REIMBURSE_PAYMENT</code>
+     · API <code>POST /api/Reimbursement/CreateReceive</code></p>
+  <ol class="steps steps--green">
+    <li><b>ค้นใบเรียกเก็บที่ต้องรับชำระ</b><p><code>POST /api/Reimbursement/GetBillInvoiceList</code></p></li>
+    <li><b>เลือกใบ + ระบุยอดที่ได้รับจริง</b><p>รองรับรับชำระบางส่วน (partial)</p></li>
+    <li><b>บันทึก</b><p>สร้างเอกสาร <code>BillType = 3</code> (ReceivePayment) และตัดยอดลูกหนี้</p></li>
+    <li><b>กรณีถูกตัดยอด/ปฏิเสธ</b><p>สร้าง <code>BillType = 4</code> (Discount / ใบลดหนี้) เพื่อล้างส่วนต่าง</p></li>
+  </ol>
+
+  <h3>6.2 ตรวจสอบรอบรับชำระ</h3>
+  <p><code>/finance/reimbursement/verify-receive</code> — สอบทานว่ายอดที่รับมาตรงกับ Statement
+     และไม่มีใบที่รับซ้ำ · <code>GET /api/Reimbursement/GetReceivedPaymentDetail</code></p>
+
+  <!-- ================================================================== -->
+  <h2 id="status">ตารางสถานะและรหัสอ้างอิง</h2>
+
+  <h3>BillStatus (<code>constBillStatus</code>) — สถานะใบเรียกเก็บ</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ค่า</th><th>ชื่อ</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill pill--gray">1</span></td><td>SendBilling</td><td>ส่งเบิกแล้ว รอผล</td></tr>
+      <tr><td><span class="pill pill--green">A</span></td><td>PassedInitialCheck</td><td>ผ่านการตรวจสอบเบื้องต้น</td></tr>
+      <tr><td><span class="pill pill--red">C</span></td><td>FailedInitialCheck</td><td>ไม่ผ่านการตรวจสอบเบื้องต้น</td></tr>
+      <tr><td><span class="pill pill--red">D</span></td><td>FailedInitialCheckDeny</td><td>ไม่ผ่าน + ถูกปฏิเสธ (Deny)</td></tr>
+      <tr><td><span class="pill pill--amber">V</span></td><td>PassedInitialCheckButVerify</td><td>ผ่านแต่ต้อง Verify เพิ่ม</td></tr>
+      <tr><td><span class="pill pill--blue">S</span></td><td>ReceivedTransferStatementFromNHSO</td><td>ได้รับ Statement การโอนจาก สปสช.</td></tr>
+      <tr><td><span class="pill pill--amber">R</span></td><td>PendingPaymentNHSO</td><td>รอ สปสช. จ่ายเงิน</td></tr>
+      <tr><td><span class="pill pill--green">P</span></td><td>PaymentReceived</td><td>รับเงินแล้ว</td></tr>
+      <tr><td><span class="pill pill--gray">2</span></td><td>ReceivablesWrittenOff</td><td>ตัดจำหน่ายลูกหนี้ (หนี้สูญ)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Claim Type (<code>constClaimtype</code>)</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ค่า</th><th>ความหมาย</th><th>ค่า</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td><code>N</code></td><td>Normal — ปกติ</td><td><code>I</code></td><td>OP Refer In — รับส่งต่อเข้า</td></tr>
+      <tr><td><code>A</code></td><td>Emergency Accident — อุบัติเหตุฉุกเฉิน</td><td><code>O</code></td><td>OP Refer Out — ส่งต่อออก</td></tr>
+      <tr><td><code>E</code></td><td>Emergency — ฉุกเฉิน</td><td><code>C</code></td><td>OP Refer Cross — ส่งต่อข้ามเขต</td></tr>
+      <tr><td><code>S</code></td><td>ODS — ผ่าตัดวันเดียวกลับ</td><td>(null)</td><td>ไม่ใช่ AE</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>C-Code (<code>constCCodeType</code>) — ผลตรวจสอบรายรายการ</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ค่า</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td><code>-</code></td><td>ผ่าน (Success)</td></tr>
+      <tr><td><code>C</code></td><td>ติด C-Validate — ต้องแก้ข้อมูลแล้วส่งใหม่</td></tr>
+      <tr><td><code>Verify</code></td><td>ต้องส่งเอกสารยืนยันเพิ่ม</td></tr>
+      <tr><td><code>DENY</code></td><td>ถูกปฏิเสธการจ่าย</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>AE / EM Type</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>AE Type</th><th>ความหมาย</th><th>EM Type</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td><code>1</code></td><td>รักษาฉุกเฉิน</td><td><code>V</code></td><td>Visit</td></tr>
+      <tr><td><code>2</code></td><td>ผ่าตัดฉุกเฉิน</td><td><code>O</code></td><td>OPD</td></tr>
+      <tr><td><code>3</code></td><td>โรคที่กำหนด</td><td><code>B</code></td><td>Both</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="report">รายงาน</h2>
+
+  <p><code>/finance/reimbursement/export-report</code> และกลุ่มรายงานเฉพาะทาง</p>
+
+  <h3>รายงานส่งบัญชี / ลูกหนี้</h3>
+  <p><code>/finance/reimbursement/report/account-submission-report/*</code></p>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>รายงาน</th><th>เส้นทางย่อย</th></tr></thead>
+    <tbody>
+      <tr><td>สรุปส่งบัญชี OPD / IPD</td><td><code>report-account-opd-summary</code> · <code>report-account-ipd-summary</code></td></tr>
+      <tr><td>ลูกหนี้ OPD / IPD</td><td><code>account-receivable-opd</code> · <code>account-receivable-ipd</code></td></tr>
+      <tr><td>ลูกหนี้แยกผังบัญชี</td><td><code>account-receivable-opd-chart-accounts</code> · <code>account-receivable-ipd-chart-accounts</code></td></tr>
+      <tr><td>ลูกหนี้ที่ยังไม่ปิดบัญชี</td><td><code>account-receivable-opd-not-close-acc</code> · <code>account-receivable-ipd-not-close-acc</code></td></tr>
+      <tr><td>สรุปที่ยังไม่ปิดบัญชี</td><td><code>report-account-opd-not-close-acc-summary</code> · <code>report-account-ipd-not-close-acc-summary</code></td></tr>
+      <tr><td>ลูกหนี้ OPD สิทธิ 22 (รายละเอียด/สรุป)</td><td><code>report-account-receivable-opd-22-detail</code> · <code>…-22-summary</code></td></tr>
+      <tr><td>ลูกหนี้ OPD ที่ไม่ใช่สิทธิ 22/10</td><td><code>report-account-receivable-opd-not-22-10-detail</code> · <code>…-summary</code></td></tr>
+      <tr><td>ลูกหนี้ IPD (รายละเอียด/สรุป)</td><td><code>report-account-receivable-ipd-detail</code> · <code>…-summary</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">รองรับทั้ง Export Excel (<code>GET /api/Reimbursement/ExportExcelAccountReport</code>)
+     และ Import กลับเข้าระบบ (<code>POST /api/Reimbursement/ImportReportAccount</code>)</p>
+
+  <h3>รายงานเฉพาะทางอื่น ๆ</h3>
+  <ul>
+    <li><b>C-Deny Summary</b> — <code>/report/c-deny-summary</code> สรุปรายการที่ติด C / ถูก Deny</li>
+    <li><b>NC1 Report</b> — <code>/report/new-nc1-report/{report-nc1-opd | report-nc1-opd-right-22 | report-nc1-ipd}</code>
+        · <code>GET /api/Reimbursement/ExportExcelNewNC1Report</code></li>
+  </ul>
+
+  <!-- ================================================================== -->
+  <h2 id="batch">Batch &amp; งานอัตโนมัติ</h2>
+
+  <p>โปรเจกต์ <code>HAOS.Batch</code> (Quartz.NET) รัน Job ที่เกี่ยวกับงานเรียกเก็บดังนี้</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Job</th><th>Cron (ค่าตัวอย่าง)</th><th>ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><code>AutoCreateBillJob</code></td><td><code>0 0 1 * * ?</code></td>
+          <td>เรียก <code>MophBookingClaimService.JobMophBookingClaim()</code> → <b>FetchCreateInvoice</b> →
+              <b>FetchInvoiceToBookingClaim</b> → <b>FetchSendBookingClaim</b></td></tr>
+      <tr><td><code>MophClaimJob</code></td><td><code>0 0 1 1/1 * ?</code></td><td>ส่งข้อมูลเคลมไป MOPH Claim</td></tr>
+      <tr><td><code>MophVisitFdhJob</code></td><td><code>0 0 1 * * ?</code></td><td>ส่งจำนวน Visit เข้า FDH Data Hub</td></tr>
+      <tr><td><code>MophCheckTransJob</code></td><td><code>0 */3 * * * ?</code></td><td>ติดตามสถานะ Transaction ที่ FDH ทุก 3 นาที</td></tr>
+      <tr><td><code>MophSendPhrJob</code></td><td><code>0 30 0 * * ?</code></td><td>ส่งข้อมูล PHR</td></tr>
+      <tr><td><code>TransferFinanceBySpecialClaimIcdJob</code></td><td><code>0 0 20 * * ?</code></td><td>โอนค่าใช้จ่ายตามเงื่อนไข ICD ที่ตั้งไว้ในเมนู “กำหนดการเรียกเก็บพิเศษ”</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--danger">
+    <b class="note__label">กับดักการตั้งค่า Auto Create Bill — ต้องตรวจ 2 ที่ให้ตรงกัน</b>
+    <p><code>AutoCreateBillJob</code> ถูก <b>ปลุกด้วย Cron</b> จาก <code>CronBatch:AutoCreateBillJob</code>
+       แต่ภายในตัวมันเองยังตรวจซ้ำอีกชั้นด้วย <code>AutoCreateBillJobSchdule:JobList</code>
+       ซึ่งกำหนดเวลา <code>RunJob</code> ไว้ และ<b>จะทำงานก็ต่อเมื่อเวลาปัจจุบันห่างจาก <code>RunJob</code> ไม่เกิน 5 นาที</b>
+       เท่านั้น</p>
+    <p>ถ้า Cron ตั้งไว้เวลาหนึ่ง (เช่น <code>01:00</code>) แต่ <code>JobList</code> ระบุ
+       <code>RunJob</code> เป็นเวลาอื่น (เช่น <code>21:00</code> และ <code>00:00</code>)
+       Job จะถูกปลุกขึ้นมาแล้ว<b>ไม่ทำอะไรเลย</b> — และไม่มี error ให้เห็น ผลคือ
+       ใบเรียกเก็บของทั้งวันไม่ถูกสร้าง เงียบ ๆ</p>
+    <p><b>สิ่งที่ควรทำ:</b> ตรวจ log ว่ามีบรรทัด <code>FetchCreateInvoice</code> /
+       <code>Finished FetchSendBookingClaim</code> ขึ้นทุกวันหรือไม่ ถ้าไม่มี ให้ปรับ Cron ให้ตรงกับ
+       <code>RunJob</code> รายการใดรายการหนึ่ง</p>
+  </div>
+
+  <div class="note note--warn">
+    <b class="note__label">เรื่องประสิทธิภาพและ Token</b>
+    <p>Pipeline นี้ประมวลผลทีละรายการและเรียก API ภายนอกต่อรายการ ในวันที่มีผู้ป่วยมากอาจใช้เวลานาน
+       จนทับซ้อนกับรอบถัดไป (<code>[DisallowConcurrentExecution]</code> จะทำให้รอบใหม่ถูกข้าม)
+       และหาก Access Token ของ MOPH/FDH หมดอายุระหว่างรอบ รายการที่เหลือจะกลายเป็น
+       <span class="pill pill--red">Failed</span> ค้าง — ควรมีการตรวจ backlog ของสถานะ NotSuccess เป็นประจำ
+       และใช้ปุ่ม “ส่งจองเคลมใหม่” ในหน้า Booking Claim เพื่อยิงซ้ำ</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="menu">เมนู · เส้นทาง · API</h2>
+
+  <h3>แผนผังเมนู “22. งานเรียกเก็บ”</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมนู</th><th>เส้นทาง</th><th>สิทธิ</th></tr></thead>
+    <tbody>
+      <tr><td>Dashboard</td><td><code>/finance/reimbursement/dashboard</code></td><td><code>REIMBURSEMENT_DASHBOARD</code></td></tr>
+      <tr><td>Summary Dashboard</td><td><code>…/summary-dashboard</code></td><td><code>REIMBURSEMENT_DASHBOARD</code></td></tr>
+      <tr><td>Dashboard MophClaim</td><td><code>…/dashboard-mophclaim</code></td><td><code>REIMBURSEMENT_REIMBURSE_MOPHCLAIM_DASHBOARD</code></td></tr>
+      <tr><td colspan="3"><b>ผู้ป่วยนอก</b></td></tr>
+      <tr><td>· ตรวจสอบสิทธิ</td><td><code>…/opd/rights</code></td><td><code>REIMBURSEMENT_CHECK_OPD_RIGHT</code></td></tr>
+      <tr><td>· บันทึกข้อมูลเรียกเก็บ</td><td><code>…/opd/create-invoice</code></td><td><code>REIMBURSEMENT_OPD_REIMBURSE</code></td></tr>
+      <tr><td>· บันทึกค่าใช้จ่าย Lab/X-Ray/Other</td><td><code>…/opd/non-drug</code></td><td><code>REIMBURSEMENT_OPD_NON_DRUG_CHARGE</code></td></tr>
+      <tr><td>· สรุปค่ารักษาพยาบาล</td><td><code>…/opd/summary</code></td><td><code>REIMBURSEMENT_OPD_EXPENSE_SUMMARY</code></td></tr>
+      <tr><td>· ปรับยอดเบิกได้ / Hybrid Invoice</td><td><code>…/opd/adjust-claim-opd</code> · <code>…/opd/hybrid-invoice</code></td><td>—</td></tr>
+      <tr><td colspan="3"><b>ผู้ป่วยใน</b> (โครงสร้างเหมือน OPD)</td></tr>
+      <tr><td>· ตรวจสอบสิทธิ</td><td><code>…/ipd/rights</code></td><td><code>REIMBURSEMENT_CHECK_IPD_RIGHT</code></td></tr>
+      <tr><td>· สรุป / Lab-X-Ray / เรียกเก็บ / ปรับยอด</td><td><code>…/ipd/summary</code> · <code>…/ipd/non-drug</code> · <code>…/ipd/create-invoice</code> · <code>…/ipd/adjust-claim-ipd</code></td><td><code>REIMBURSEMENT_IPD_*</code></td></tr>
+      <tr><td colspan="3"><b>งานปิดบัญชี / รอบ / ส่งเบิก</b></td></tr>
+      <tr><td>บันทึกรับชำระเงิน</td><td><code>…/receive-payment</code></td><td><code>REIMBURSEMENT_REIMBURSE_PAYMENT</code></td></tr>
+      <tr><td>ตรวจสอบ/แก้ไขการเรียกเก็บ</td><td><code>…/cancel-invoice</code></td><td><code>REIMBURSEMENT_REIMBURSE_PAYMENT</code></td></tr>
+      <tr><td>ตรวจสอบรอบส่งเบิก</td><td><code>…/bill-rounds</code></td><td><code>REIMBURSEMENT_REIMBURSE_ROUND</code></td></tr>
+      <tr><td>ตรวจสอบรอบก่อนส่งเบิก</td><td><code>…/pre-audit-bill-rounds</code></td><td><code>REIMBURSEMENT_REIMBURSE_ROUND</code></td></tr>
+      <tr><td>ตรวจสอบการขอ Authen Code</td><td><code>…/authen-code-lists</code></td><td>—</td></tr>
+      <tr><td>การบัญชีผู้ป่วยนอก / ใน</td><td><code>…/close-account-opd</code> · <code>…/close-account-ipd</code></td><td>—</td></tr>
+      <tr><td>การส่งเบิก › ตรวจสอบการส่งเบิก</td><td><code>…/verify-claim/booking-claim</code></td><td>—</td></tr>
+      <tr><td>การส่งเบิก › import REP</td><td><code>…/verify-claim/import-rep</code></td><td>—</td></tr>
+      <tr><td>การส่งเบิก › เปลี่ยนรอบส่งเบิก</td><td><code>…/verify-claim/change-disbursement-cycle</code></td><td>—</td></tr>
+      <tr><td>การส่งเบิก › import Statement</td><td><code>…/verify-claim/import-statement</code></td><td>—</td></tr>
+      <tr><td>การส่งเบิก › รายการที่ยังไม่ปิดสิทธิ</td><td><code>…/verify-claim/close-right</code></td><td>—</td></tr>
+      <tr><td>ลงบันทึกสถานะข้อมูลเรียกเก็บ</td><td><code>…/cscd-upload</code></td><td><code>REIMBURSEMENT_REIMBURSE_STATUS</code></td></tr>
+      <tr><td>บันทึกเลื่อนรอบการเรียกเก็บ</td><td><code>…/round-upload</code></td><td><code>REIMBURSEMENT_REIMBURSE_ROUND_CHANGE</code></td></tr>
+      <tr><td>ตรวจสอบรอบรับชำระ</td><td><code>…/verify-receive</code></td><td>—</td></tr>
+      <tr><td>รายงาน</td><td><code>…/export-report</code></td><td>—</td></tr>
+      <tr><td>รหัสยา / ค่าใช้จ่าย / Lab / X-Ray</td><td><code>…/drug-registration</code> · <code>…/expense-registration</code> · <code>…/lab-registration</code> · <code>…/xray-registration</code></td><td><code>IT_ADMIN</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>API หลัก (ReimbursementController)</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Method</th><th>Path</th><th>หน้าที่</th></tr></thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/api/Reimbursement/DashboardReimbursement</code> · <code>DashboardSummary</code></td><td>Dashboard</td></tr>
+      <tr><td>GET</td><td><code>/api/Reimbursement/GetSummary…Dashboard</code> (5 ตัว)</td><td>Summary Dashboard</td></tr>
+      <tr><td>POST</td><td><code>/api/Reimbursement/GetBillInvoiceList</code></td><td>ค้นใบเรียกเก็บ</td></tr>
+      <tr><td>GET</td><td><code>/api/Reimbursement/GetBillInvoiceListByBillId</code></td><td>รายละเอียดใบ</td></tr>
+      <tr><td>POST</td><td><code>/api/Reimbursement/CreateReceive</code></td><td>บันทึกรับชำระ</td></tr>
+      <tr><td>POST</td><td><code>/api/Reimbursement/EditInvoice</code></td><td>แก้ไขใบเรียกเก็บ</td></tr>
+      <tr><td>GET</td><td><code>/api/Reimbursement/GetReceivedPaymentDetail</code></td><td>รายละเอียดการรับชำระ</td></tr>
+      <tr><td>POST</td><td><code>/api/Reimbursement/ImportPaymentCscd</code> · <code>ImportRound</code> · <code>ImportReportAccount</code></td><td>นำเข้าไฟล์</td></tr>
+      <tr><td>GET</td><td><code>/api/Reimbursement/ExportReceivedPayment</code> · <code>ExportRound</code> · <code>ExportExcelAccountReport</code> · <code>ExportExcelNewNC1Report</code></td><td>ส่งออกไฟล์</td></tr>
+      <tr><td>GET/PUT/POST</td><td><code>/api/Reimbursement/…CloseAccount…</code> (6 ตัว)</td><td>ปิด/ยกเลิกปิดบัญชี</td></tr>
+      <tr><td>GET</td><td><code>/api/Reimbursement/report-list</code></td><td>รายการรายงาน</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>API MOPH Claim</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Method</th><th>Path</th><th>หน้าที่</th></tr></thead>
+    <tbody>
+      <tr><td>POST</td><td><code>/api/MophClaim/FetchClinicToMophClaimByClinicDate</code></td><td>ดึงข้อมูลคลินิกของวันหนึ่งเข้าคิวส่ง</td></tr>
+      <tr><td>POST</td><td><code>/api/MophClaim/FetchClinicToMophClaimByClinicDateRange</code></td><td>ดึงเป็นช่วงวันที่</td></tr>
+      <tr><td>POST</td><td><code>/api/MophClaim/FetchSendMophClaim</code></td><td>ส่งทั้งคิว</td></tr>
+      <tr><td>POST</td><td><code>/api/MophClaim/FetchSendMophClaimByMophClaimId</code></td><td>ส่งเฉพาะรายการที่เลือก (ใช้ยิงซ้ำเคสที่ Failed)</td></tr>
+      <tr><td>GET</td><td><code>/api/MophClaim/CheckTransactionStatus?TransactionId=</code></td><td>ตรวจสถานะรายการ</td></tr>
+      <tr><td>GET</td><td><code>/api/MophClaim/GetMophClaimInquery</code></td><td>ค้นประวัติการส่ง</td></tr>
+      <tr><td>POST</td><td><code>/api/MophClaim/CheckVendor</code></td><td>ตรวจการเชื่อมต่อ Vendor</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="pitfall">ข้อควรระวัง</h2>
+
+  <div class="grid grid--2">
+    <div class="card">
+      <h4>1. ลำดับที่ห้ามข้าม</h4>
+      <p>Invoice → ปิดสิทธิ → ปิดบัญชี → เข้ารอบ → ส่งเบิก
+         ถ้าข้ามขั้นใดขั้นหนึ่ง รายการจะหายจากรอบโดยไม่มี error แจ้ง</p>
+    </div>
+    <div class="card">
+      <h4>2. แก้ยอดหลังปิดบัญชีไม่ได้</h4>
+      <p>ต้องยกเลิกการปิดบัญชี (Cancel Close Account) ก่อน และทำได้เฉพาะก่อนส่งเบิกออกไป</p>
+    </div>
+    <div class="card">
+      <h4>3. Authen Code ขาด = เคลมไม่ผ่าน</h4>
+      <p>ตรวจหน้า “ตรวจสอบการขอ Authen Code” ก่อนปิดรอบทุกครั้ง</p>
+    </div>
+    <div class="card">
+      <h4>4. รอบอุทธรณ์ต้องเลือกประเภทให้ถูก</h4>
+      <p><code>Normal</code> vs <code>Appeal</code> (และเวอร์ชัน Disabled) นำเข้าผิดประเภทจะจับคู่ไม่ตรง</p>
+    </div>
+    <div class="card">
+      <h4>5. Batch เงียบเมื่อ config ไม่ตรง</h4>
+      <p>ดูกล่องเตือนในหัวข้อ <a href="#batch">Batch</a> — ตรวจ Cron กับ <code>JobList</code> ให้ตรงกัน</p>
+    </div>
+    <div class="card">
+      <h4>6. รายการที่ Failed ไม่ retry เอง</h4>
+      <p>ต้องกด “ส่งจองเคลมใหม่” หรือเรียก <code>FetchSendMophClaimByMophClaimId</code> ด้วยตัวเอง</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><a href="02-finance-tech.html">← 02 การเงิน</a></span>
+    <span>ถัดไป: <a href="04-social-welfare-tech.html">04 งานสังคมสงเคราะห์ →</a></span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

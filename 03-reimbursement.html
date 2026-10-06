@@ -1,0 +1,1639 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>บัญชีลูกหนี้ / งานเรียกเก็บ — คู่มือการใช้งาน HA.OS</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="m3">
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <p class="crumb"><a href="index.html">หน้าแรก</a> › ระบบหลัก › บัญชีลูกหนี้ / งานเรียกเก็บ</p>
+
+  <div class="page-head">
+    <h1>บัญชีลูกหนี้ / งานเรียกเก็บ</h1>
+    <p>งานเรียกเก็บรับช่วงต่อจากงานการเงิน — เอายอด “ส่วนที่สิทธิหรือต้นสังกัดต้องจ่าย” (ยอดเครดิต)
+       มาออกเป็น<b>ใบเรียกเก็บ (Invoice)</b> ตั้งเป็นลูกหนี้ จัดเข้ารอบ ส่งเบิกไปยังผู้จ่าย
+       รับผลตรวจสอบและยอดโอนกลับมา แล้วบันทึกรับชำระจนปิดยอด</p>
+  </div>
+
+  <div class="who">
+    <span><b>ผู้ใช้หลัก:</b> เจ้าหน้าที่งานเรียกเก็บ / งานประกันสุขภาพ</span>
+    <span><b>ผู้ใช้ร่วม:</b> ฝ่ายบัญชี · งานการเงิน</span>
+    <span><b>เมนู:</b> 22. งานเรียกเก็บ</span>
+    <span><b>เส้นทาง:</b> <code>/finance/reimbursement</code></span>
+  </div>
+
+  <div class="note note--tip">
+    <b class="note__label">วิธีอ่านหน้านี้</b>
+    <p>หน้านี้แบ่งเป็น 2 ส่วน · <b>ส่วนที่ 1 ภาพรวม</b> — ผังการทำงาน แผนที่เมนู วงจรสถานะ และจังหวะงานประจำ
+       อ่านเพื่อเข้าใจว่าแต่ละเมนูอยู่ตรงไหนของวงจร ·
+       <b>ส่วนที่ 2 รายละเอียดรายเมนู</b> — แต่ละหัวข้อขึ้นต้นด้วยกล่อง <b>ภาพรวม</b> (ใช้ทำอะไร · ทำเมื่อไร · ต้องมีอะไรก่อน · ได้อะไร)
+       ตามด้วย <b>รายละเอียด</b> (หน้าจอ · ช่องค้นหา · ปุ่ม · เงื่อนไขที่ระบบบังคับ · จุดที่ต้องระวัง)<br>
+       ทุกข้อความในหน้านี้ตรวจกับการทำงานจริงของระบบแล้ว ·
+       ทีมพัฒนาดูรายละเอียดเชิงเทคนิคที่ <a href="03-reimbursement-tech.html">ภาคผนวกเชิงเทคนิค</a></p>
+  </div>
+
+  <div class="toc">
+    <b>หัวข้อในหน้านี้</b>
+    <ol>
+      <li><b>ภาพรวม</b> —
+        <a href="#overview">โมดูลนี้ทำอะไร</a> ·
+        <a href="#flow">ผังการทำงาน</a> ·
+        <a href="#map">แผนที่เมนู</a> ·
+        <a href="#status">วงจรสถานะใบเรียกเก็บ</a> ·
+        <a href="#routine">จังหวะงานประจำ</a> ·
+        <a href="#prep">สิ่งที่ต้องเตรียม</a></li>
+      <li><b>ตั้งลูกหนี้</b> —
+        <a href="#d1">1 ตรวจสอบสิทธิ</a> ·
+        <a href="#d2">2 สรุปค่ารักษาพยาบาล</a> ·
+        <a href="#d3">3 บันทึกค่าใช้จ่าย Lab/X-Ray/Other</a> ·
+        <a href="#d4">4 ปรับยอดเบิกได้</a> ·
+        <a href="#d5">5 บันทึกข้อมูลเรียกเก็บ</a> ·
+        <a href="#d6">6 Hybrid Invoice</a> ·
+        <a href="#d7">7 ตรวจสอบ/แก้ไขการเรียกเก็บ</a> ·
+        <a href="#d8">8 โอนค่าใช้จ่าย</a></li>
+      <li><b>ปิดสิทธิ · ปิดบัญชี</b> —
+        <a href="#d9">9 ปิดสิทธิ สปสช.</a> ·
+        <a href="#d10">10 Authen Code</a> ·
+        <a href="#d11">11 การปิดบัญชี</a></li>
+      <li><b>รอบส่งเบิก · ส่งเบิก</b> —
+        <a href="#d12">12 ตรวจสอบรอบส่งเบิก</a> ·
+        <a href="#d13">13 ตรวจสอบรอบก่อนส่งเบิก</a> ·
+        <a href="#d14">14 ตรวจสอบการส่งเบิก</a></li>
+      <li><b>รับผล · รับเงิน</b> —
+        <a href="#d15">15 import REP</a> ·
+        <a href="#d16">16 เปลี่ยนรอบ / เลื่อนรอบ</a> ·
+        <a href="#d17">17 import Statement</a> ·
+        <a href="#d18">18 ลงบันทึกสถานะ (กรมบัญชีกลาง)</a> ·
+        <a href="#d19">19 บันทึกรับชำระเงิน</a> ·
+        <a href="#d20">20 ตรวจสอบรอบรับชำระ</a></li>
+      <li><b>ติดตามผล</b> —
+        <a href="#d21">21 Dashboard</a> ·
+        <a href="#d22">22 รายงาน</a> ·
+        <a href="#d23">23 งานอัตโนมัติ</a> ·
+        <a href="#d24">24 รหัสหลัก</a></li>
+      <li><a href="#examples">ตัวอย่างการใช้งานจริง</a> ·
+          <a href="#faq">ปัญหาที่พบบ่อย</a> ·
+          <a href="#issues">จุดที่ระบบยังทำงานไม่ตรงที่คาด</a></li>
+    </ol>
+  </div>
+
+  <!-- ================================================================== -->
+  <!-- ส่วนที่ 1 ภาพรวม                                                    -->
+  <!-- ================================================================== -->
+
+  <h2 id="overview">ส่วนที่ 1 · ภาพรวม — โมดูลนี้ทำอะไร</h2>
+
+  <p>เมื่อผู้ป่วยใช้สิทธิ โรงพยาบาลรักษาก่อนแล้วจึงไปเบิกเงินคืนทีหลัง
+     ยอดที่รอเบิกระหว่างนั้นคือ <b>“ลูกหนี้”</b> ของโรงพยาบาล งานเรียกเก็บดูแลลูกหนี้ก้อนนี้
+     ตั้งแต่ออกใบเรียกเก็บจนกระทั่งเงินเข้าบัญชี</p>
+
+  <ul class="flow">
+    <li><b>1 · ตั้งลูกหนี้</b><span>ออกใบเรียกเก็บ (Invoice)</span></li>
+    <li><b>2 · ปิดสิทธิ/ปิดบัญชี</b><span>ยืนยันกับ สปสช. · ล็อกค่าใช้จ่าย</span></li>
+    <li class="is-lis"><b>3 · จัดรอบ</b><span>ดึง Invoice เข้ารอบ · Pre-Audit</span></li>
+    <li class="is-lis"><b>4 · ส่งเบิก</b><span>ส่งออกไฟล์ / ส่ง FDH</span></li>
+    <li><b>5 · รับผล</b><span>REP · Statement · CSCD</span></li>
+    <li class="is-done"><b>6 · รับชำระ</b><span>ตัดลูกหนี้</span></li>
+  </ul>
+
+  <div class="grid grid--2">
+    <div class="card">
+      <h4>ใบเรียกเก็บ (Invoice) คืออะไร</h4>
+      <p class="small">เอกสารที่ระบบสร้างจาก “ยอดเครดิต” ของสิทธิในการมารับบริการครั้งหนึ่ง (OPD = 1 Visit, IPD = 1 Admit)
+         เลขที่ใบเรียกเก็บคือ <b>Invoice No.</b> ที่จะเห็นในทุกหน้าจอหลังจากนี้ ·
+         ใบเรียกเก็บ 1 ใบ อยู่ได้เพียง <b>1 รอบส่งเบิก</b></p>
+    </div>
+    <div class="card">
+      <h4>รอบส่งเบิก คืออะไร</h4>
+      <p class="small">ถุงที่ใช้รวบรวมใบเรียกเก็บของ<b>สิทธิเดียวกัน</b>เพื่อส่งเบิกพร้อมกัน
+         รอบเปิดอยู่ = ยังดึงใบเข้า/ยกเลิกใบได้ · <b>ปิดรอบ</b> (Lock) = ยกเลิกใบในรอบไม่ได้ และรอบจะหายจากตัวเลือก
+         · สิทธิเดียวกันมีรอบเรียกเก็บที่เปิดอยู่ได้ทีละ 1 รอบ (ต่อประเภท OPD/IPD)</p>
+    </div>
+    <div class="card">
+      <h4>ปิดสิทธิ (สปสช.)</h4>
+      <p class="small">การส่งยอดค่ารักษาของ Visit นั้นไปยืนยันกับ สปสช. (ระบบปิดสิทธิออนไลน์) และได้เลข Seq กลับมา
+         · ทำจากปุ่ม <b>ปิดสิทธิ</b> ในหน้าสรุปค่ารักษาพยาบาล ·
+         <b>ไม่ใช่</b>เงื่อนไขที่ระบบใช้ดึงใบเข้ารอบ แต่เป็นเงื่อนไขของการเบิกกับ สปสช.</p>
+    </div>
+    <div class="card">
+      <h4>ปิดบัญชี</h4>
+      <p class="small">ล็อก Visit (OPD) หรือ Admit (IPD) ไม่ให้เพิ่มหรือโอนค่าใช้จ่ายเข้ามาอีก
+         เพื่อให้ยอดลูกหนี้นิ่ง · <b>ยกเลิกการปิดบัญชีได้ทุกเมื่อ</b> ·
+         ไม่ได้เป็นเงื่อนไขในการดึงใบเข้ารอบหรือการส่งออกไฟล์</p>
+    </div>
+  </div>
+
+  <div class="note note--warn">
+    <b class="note__label">แก้ความเข้าใจเดิม</b>
+    <p>คู่มือฉบับก่อนเขียนว่า “รายการที่ยังไม่ปิดสิทธิหรือยังไม่ปิดบัญชี จะไม่ถูกดึงเข้ารอบ” — <b>ไม่ถูกต้อง</b>
+       ระบบดึงใบเข้ารอบโดยดูเพียง สิทธิ · ประเภท OPD/IPD · วันที่ใบเรียกเก็บ · ยังไม่อยู่ในรอบใด · ยังไม่ถูกยกเลิก
+       (ดูรายละเอียดที่ <a href="#d12">หัวข้อ 12</a>) ·
+       อย่างไรก็ดีการปิดสิทธิและปิดบัญชียังควรทำ เพราะ สปสช. ใช้ผลปิดสิทธิในการพิจารณาจ่าย และการปิดบัญชีป้องกันยอดเปลี่ยนหลังส่งเบิก</p>
+  </div>
+
+  <h2 id="flow">ผังการทำงาน</h2>
+
+  <div style="overflow-x:auto;margin:0 0 10px;padding:4px 0">
+<svg viewBox="0 0 1028 1292" role="img" aria-label="Activity Diagram แบบ Swimlane ของงานเรียกเก็บ พร้อมชื่อเมนู" style="width:100%;min-width:880px;height:auto;font-family:'IBM Plex Sans Thai','Noto Sans Thai','Sarabun','Segoe UI',sans-serif">
+  <defs>
+    <marker id="m00796b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#00796b"/></marker>
+    <marker id="mbf4300" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#bf4300"/></marker>
+    <marker id="m5e35b1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5e35b1"/></marker>
+  </defs>
+  <!-- เลน -->
+  <rect x="10" y="46" width="320" height="1236" rx="12" fill="#f2f8f7" stroke="#9eccc6"/>
+  <rect x="10" y="0" width="320" height="32" rx="16" fill="#00796b"/>
+  <text x="170" y="21" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">งานการเงิน / ระบบอัตโนมัติ</text>
+  <rect x="354" y="46" width="320" height="1236" rx="12" fill="#fbf5f2" stroke="#e6b79e"/>
+  <rect x="354" y="0" width="320" height="32" rx="16" fill="#bf4300"/>
+  <text x="514" y="21" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">งานเรียกเก็บ</text>
+  <rect x="698" y="46" width="320" height="1236" rx="12" fill="#f6f4fb" stroke="#c1b2e1"/>
+  <rect x="698" y="0" width="320" height="32" rx="16" fill="#5e35b1"/>
+  <text x="858" y="21" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">สปสช. · FDH · กรมบัญชีกลาง</text>
+  <!-- เส้นเชื่อม -->
+  <path d="M170 138 V153 H514 V163" fill="none" stroke="#00796b" stroke-width="2" marker-end="url(#m00796b)"/>
+  <text x="342" y="147" text-anchor="middle" font-size="10.6" font-weight="600" fill="#5b6572">ยอดเครดิต</text>
+  <line x1="514" y1="254" x2="514" y2="277" stroke="#bf4300" stroke-width="2" marker-end="url(#mbf4300)"/>
+  <text x="523" y="273" font-size="10.6" font-weight="600" fill="#5b6572">ยอดที่ถูกต้อง</text>
+  <line x1="312" y1="326" x2="363" y2="326" stroke="#00796b" stroke-width="2" marker-end="url(#m00796b)"/>
+  <line x1="170" y1="368" x2="170" y2="391" stroke="#00796b" stroke-width="2" marker-end="url(#m00796b)"/>
+  <line x1="312" y1="440" x2="707" y2="440" stroke="#00796b" stroke-width="2" marker-end="url(#m00796b)"/>
+  <text x="684" y="433" text-anchor="end" font-size="10.6" font-weight="600" fill="#5b6572">จองเคลม (OPD)</text>
+  <line x1="514" y1="368" x2="514" y2="505" stroke="#bf4300" stroke-width="2" marker-end="url(#mbf4300)"/>
+  <text x="523" y="501" font-size="10.6" font-weight="600" fill="#5b6572">ใบเรียกเก็บ</text>
+  <line x1="514" y1="596" x2="514" y2="619" stroke="#bf4300" stroke-width="2" marker-end="url(#mbf4300)"/>
+  <line x1="514" y1="710" x2="514" y2="733" stroke="#bf4300" stroke-width="2" marker-end="url(#mbf4300)"/>
+  <text x="523" y="729" font-size="10.6" font-weight="600" fill="#5b6572">รอบที่ตรวจแล้ว</text>
+  <path d="M514 822 V837 H858 V847" fill="none" stroke="#bf4300" stroke-width="2" marker-end="url(#mbf4300)"/>
+  <text x="686" y="831" text-anchor="middle" font-size="10.6" font-weight="600" fill="#5b6572">ไฟล์ส่งเบิก / 16 แฟ้ม</text>
+  <path d="M858 936 V951 H514 V961" fill="none" stroke="#5e35b1" stroke-width="2" marker-end="url(#m5e35b1)"/>
+  <text x="686" y="945" text-anchor="middle" font-size="10.6" font-weight="600" fill="#5b6572">ไฟล์ REP / Statement</text>
+  <line x1="514" y1="1052" x2="514" y2="1075" stroke="#bf4300" stroke-width="2" marker-end="url(#mbf4300)"/>
+  <line x1="514" y1="1166" x2="514" y2="1189" stroke="#bf4300" stroke-width="2" marker-end="url(#mbf4300)"/>
+  <text x="523" y="1185" font-size="10.6" font-weight="600" fill="#5b6572">ยอดที่โอนมา</text>
+  <path d="M372 1010 H342 V668 H363" fill="none" stroke="#bf4300" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#mbf4300)"/>
+  <text transform="translate(336 839) rotate(-90)" text-anchor="middle" font-size="10.4" font-weight="600" fill="#bf4300">ติด C → เปลี่ยนรอบ</text>
+  <!-- กล่องกิจกรรม -->
+  <rect x="28" y="58" width="284" height="80" rx="9" fill="#ffffff" stroke="#72b5ad" stroke-width="1.6"/>
+  <rect x="29" y="71" width="5" height="54" rx="2.5" fill="#00796b"/>
+  <text x="44" y="85" font-size="12.6" font-weight="600" fill="#1b2027">บันทึกค่าใช้จ่าย / ออกใบเสร็จ</text>
+  <text x="44" y="103" font-size="11.2" fill="#5b6572">ยอดส่วนเครดิตค้างรอเรียกเก็บ</text>
+  <rect x="44" y="115" width="5" height="5" rx="1" fill="#00796b" opacity=".75"/>
+  <text x="54" y="123" font-size="10.4" font-weight="600" fill="#00796b">การเงิน › สรุปค่ารักษาพยาบาล</text>
+  <rect x="372" y="172" width="284" height="80" rx="9" fill="#ffffff" stroke="#db9772" stroke-width="1.6"/>
+  <rect x="373" y="185" width="5" height="54" rx="2.5" fill="#bf4300"/>
+  <text x="388" y="199" font-size="12.6" font-weight="600" fill="#1b2027">ตรวจสิทธิ · สรุปค่ารักษา</text>
+  <text x="388" y="217" font-size="11.2" fill="#5b6572">ปรับยอดเบิกได้ เพิ่มรายการตกหล่น</text>
+  <rect x="388" y="229" width="5" height="5" rx="1" fill="#bf4300" opacity=".75"/>
+  <text x="398" y="237" font-size="10.4" font-weight="600" fill="#bf4300">ผู้ป่วยนอก/ใน › สรุปค่ารักษาพยาบาล</text>
+  <rect x="28" y="286" width="284" height="80" rx="9" fill="#ffffff" stroke="#72b5ad" stroke-width="1.6"/>
+  <rect x="29" y="299" width="5" height="54" rx="2.5" fill="#00796b"/>
+  <text x="44" y="321" font-size="12.6" font-weight="600" fill="#1b2027">ระบบสร้าง Invoice อัตโนมัติ</text>
+  <text x="44" y="339" font-size="11.2" fill="#5b6572">18:00 · 21:00 · 01:00 (OPD สิทธิ Auto)</text>
+  <rect x="372" y="286" width="284" height="80" rx="9" fill="#ffffff" stroke="#db9772" stroke-width="1.6"/>
+  <rect x="373" y="299" width="5" height="54" rx="2.5" fill="#bf4300"/>
+  <text x="388" y="313" font-size="12.6" font-weight="600" fill="#1b2027">ออกใบเรียกเก็บ (Invoice)</text>
+  <text x="388" y="331" font-size="11.2" fill="#5b6572">ตั้งเป็นลูกหนี้ สถานะ 1</text>
+  <rect x="388" y="343" width="5" height="5" rx="1" fill="#bf4300" opacity=".75"/>
+  <text x="398" y="351" font-size="10.4" font-weight="600" fill="#bf4300">บันทึกข้อมูลเรียกเก็บ · Hybrid Invoice</text>
+  <rect x="28" y="400" width="284" height="80" rx="9" fill="#ffffff" stroke="#72b5ad" stroke-width="1.6"/>
+  <rect x="29" y="413" width="5" height="54" rx="2.5" fill="#00796b"/>
+  <text x="44" y="435" font-size="12.6" font-weight="600" fill="#1b2027">ส่งจองเคลมอัตโนมัติ</text>
+  <text x="44" y="453" font-size="11.2" fill="#5b6572">ทุกชั่วโมง นาทีที่ 30 (สิทธิ Auto Booking)</text>
+  <rect x="716" y="400" width="284" height="80" rx="9" fill="#ffffff" stroke="#a68fd4" stroke-width="1.6"/>
+  <rect x="717" y="413" width="5" height="54" rx="2.5" fill="#5e35b1"/>
+  <text x="732" y="435" font-size="12.6" font-weight="600" fill="#1b2027">รับจองเคลม</text>
+  <text x="732" y="453" font-size="11.2" fill="#5b6572">ตอบกลับ Transaction ID</text>
+  <rect x="372" y="514" width="284" height="80" rx="9" fill="#ffffff" stroke="#db9772" stroke-width="1.6"/>
+  <rect x="373" y="527" width="5" height="54" rx="2.5" fill="#bf4300"/>
+  <text x="388" y="541" font-size="12.6" font-weight="600" fill="#1b2027">ปิดสิทธิ สปสช. · Authen Code</text>
+  <text x="388" y="559" font-size="11.2" fill="#5b6572">ปิดบัญชีเพื่อล็อกค่าใช้จ่าย</text>
+  <rect x="388" y="571" width="5" height="5" rx="1" fill="#bf4300" opacity=".75"/>
+  <text x="398" y="579" font-size="10.4" font-weight="600" fill="#bf4300">สรุปค่ารักษา › ปิดสิทธิ · การปิดบัญชี</text>
+  <rect x="372" y="628" width="284" height="80" rx="9" fill="#ffffff" stroke="#db9772" stroke-width="1.6"/>
+  <rect x="373" y="641" width="5" height="54" rx="2.5" fill="#bf4300"/>
+  <text x="388" y="655" font-size="12.6" font-weight="600" fill="#1b2027">จัดเข้ารอบ · Pre-Audit</text>
+  <text x="388" y="673" font-size="11.2" fill="#5b6572">ดึง Invoice ตามสิทธิและช่วงวันที่</text>
+  <rect x="388" y="685" width="5" height="5" rx="1" fill="#bf4300" opacity=".75"/>
+  <text x="398" y="693" font-size="10.4" font-weight="600" fill="#bf4300">ตรวจสอบรอบส่งเบิก · รอบก่อนส่งเบิก</text>
+  <rect x="372" y="742" width="284" height="80" rx="9" fill="#ffffff" stroke="#db9772" stroke-width="1.6"/>
+  <rect x="373" y="755" width="5" height="54" rx="2.5" fill="#bf4300"/>
+  <text x="388" y="769" font-size="12.6" font-weight="600" fill="#1b2027">ส่งออกไฟล์ / ส่ง FDH</text>
+  <text x="388" y="787" font-size="11.2" fill="#5b6572">ล็อกรอบ (ปิดรอบ)</text>
+  <rect x="388" y="799" width="5" height="5" rx="1" fill="#bf4300" opacity=".75"/>
+  <text x="398" y="807" font-size="10.4" font-weight="600" fill="#bf4300">ตรวจสอบรอบส่งเบิก › ส่งออก · ส่ง FDH</text>
+  <rect x="716" y="856" width="284" height="80" rx="9" fill="#ffffff" stroke="#a68fd4" stroke-width="1.6"/>
+  <rect x="717" y="869" width="5" height="54" rx="2.5" fill="#5e35b1"/>
+  <text x="732" y="891" font-size="12.6" font-weight="600" fill="#1b2027">ตรวจสอบข้อมูลเบิก</text>
+  <text x="732" y="909" font-size="11.2" fill="#5b6572">ส่ง REP · Statement · ผล CSCD</text>
+  <rect x="372" y="970" width="284" height="80" rx="9" fill="#ffffff" stroke="#db9772" stroke-width="1.6"/>
+  <rect x="373" y="983" width="5" height="54" rx="2.5" fill="#bf4300"/>
+  <text x="388" y="997" font-size="12.6" font-weight="600" fill="#1b2027">นำเข้า REP · แก้รายการติด C/Deny</text>
+  <text x="388" y="1015" font-size="11.2" fill="#5b6572">ผล A / C / D / V รายใบ</text>
+  <rect x="388" y="1027" width="5" height="5" rx="1" fill="#bf4300" opacity=".75"/>
+  <text x="398" y="1035" font-size="10.4" font-weight="600" fill="#bf4300">การส่งเบิก › import REP</text>
+  <rect x="372" y="1084" width="284" height="80" rx="9" fill="#ffffff" stroke="#db9772" stroke-width="1.6"/>
+  <rect x="373" y="1097" width="5" height="54" rx="2.5" fill="#bf4300"/>
+  <text x="388" y="1111" font-size="12.6" font-weight="600" fill="#1b2027">นำเข้า Statement / สถานะ CSCD</text>
+  <text x="388" y="1129" font-size="11.2" fill="#5b6572">ยอดโอนรายรายการ</text>
+  <rect x="388" y="1141" width="5" height="5" rx="1" fill="#bf4300" opacity=".75"/>
+  <text x="398" y="1149" font-size="10.4" font-weight="600" fill="#bf4300">import Statement · ลงบันทึกสถานะฯ</text>
+  <rect x="372" y="1198" width="284" height="80" rx="9" fill="#e9f6ea" stroke="#8cc190" stroke-width="1.6"/>
+  <rect x="373" y="1211" width="5" height="54" rx="2.5" fill="#2e7d32"/>
+  <text x="388" y="1233" font-size="12.6" font-weight="600" fill="#1b2027">บันทึกรับชำระ ตัดลูกหนี้</text>
+  <rect x="388" y="1243" width="5" height="5" rx="1" fill="#2e7d32" opacity=".75"/>
+  <text x="398" y="1251" font-size="10.4" font-weight="600" fill="#2e7d32">งานเรียกเก็บ › บันทึกรับชำระเงิน</text>
+</svg>
+
+  </div>
+
+  <p class="small" style="margin-bottom:20px"><b>แต่ละคอลัมน์คือผู้ทำ</b> · ลูกศรบอกว่างานส่งต่อไปใคร และข้อมูลอะไรถูกส่งไปด้วย ·
+     <b>บรรทัดล่างสุดในกล่อง</b> คือ<b>เมนูหรือหน้าจอ</b>ที่ใช้ทำขั้นตอนนั้น (กล่องที่ไม่มีบรรทัดนี้ คือระบบทำเอง หรือทำที่ปลายทาง) ·
+     <b style="color:#bf4300">เส้นประ</b> = รายการที่ติด C ต้องแก้แล้วย้ายเข้ารอบใหม่ ·
+     <b style="color:#2e7d32">กล่องเขียว</b> = จบกระบวนการ</p>
+
+  <h2 id="map">แผนที่เมนู</h2>
+
+  <p>งานเรียกเก็บมีหน้าจอให้ใช้ <b>4 ทาง</b> — (ก) <b>41 เมนู</b>ในแถบซ้ายของ <span class="menuname">22. งานเรียกเก็บ</span> ·
+     (ข) <b>20 รายงาน</b>ในแถบซ้ายของหน้ารายงาน · (ค) หน้าที่<b>ไม่มีในเมนู</b> เข้าได้จากปุ่มเท่านั้น ·
+     (ง) เมนูที่ต้องตั้งไว้ใน<b>โมดูลอื่น</b> · ตารางด้านล่างแสดงครบทุกตัว</p>
+  <p class="small">คอลัมน์ <b>ขั้น</b> = ช่วงของวงจร (เลขเดียวกับแถบด้านบน) · <b>รหัสสิทธิ</b> = สิทธิที่ต้องมีจึงจะ<b>เห็นเมนู</b> (“—” = ทุกคนที่เข้าเมนูหลักได้จะเห็น) ·
+     เส้นทางทุกตัวขึ้นต้นด้วย <code>/finance/reimbursement</code></p>
+
+  <h3>(ก) เมนูในแถบซ้าย — เรียงตามที่เห็นบนจอ</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>#</th><th>เมนู</th><th>เส้นทาง</th><th>ขั้น</th><th>ใช้ทำอะไร</th><th>รหัสสิทธิ</th><th>หัวข้อ</th></tr></thead>
+    <tbody>
+      <tr><td colspan="7"><b>ภาพรวม</b></td></tr>
+      <tr><td>1</td><td>Dashboard</td><td><code>/dashboard</code></td><td>ทุกขั้น</td><td>นับผู้ป่วยที่เรียกเก็บแล้ว/ยัง แยก OPD/IPD · หน้าแรกเมื่อเข้าโมดูล</td><td><code>REIMBURSEMENT_DASHBOARD</code></td><td><a href="#d21">21</a></td></tr>
+      <tr><td>2</td><td>Summary Dashboard</td><td><code>/summary-dashboard</code></td><td>ทุกขั้น</td><td>กราฟรายได้ตามกลุ่มสิทธิ สถานะส่งเบิก เทียบรายเดือน/ปี</td><td><code>REIMBURSEMENT_DASHBOARD</code></td><td><a href="#d21">21</a></td></tr>
+      <tr><td>3</td><td>Dashboard MophClaim</td><td><code>/dashboard-mophclaim</code></td><td>—</td><td>ติดตามการส่งข้อมูลบริการ DMHT / EPI / DT</td><td><code>REIMBURSEMENT_REIMBURSE_MOPHCLAIM_DASHBOARD</code></td><td><a href="#d21">21</a></td></tr>
+
+      <tr><td colspan="7"><b>ผู้ป่วยนอก</b> (กลุ่มเมนู)</td></tr>
+      <tr><td>4</td><td>ตรวจสอบสิทธิ</td><td><code>/opd/rights</code></td><td>1</td><td>ดู/เพิ่ม/แก้สิทธิของ Visit</td><td><code>REIMBURSEMENT_CHECK_OPD_RIGHT</code></td><td><a href="#d1">1</a></td></tr>
+      <tr><td>5</td><td>บันทึกข้อมูลเรียกเก็บ</td><td><code>/opd/create-invoice</code></td><td>1</td><td>ออกใบเรียกเก็บ (ต้องเปิดจากปุ่มเรียกเก็บ)</td><td><code>REIMBURSEMENT_OPD_REIMBURSE</code></td><td><a href="#d5">5</a></td></tr>
+      <tr><td>6</td><td>บันทึกค่าใช้จ่าย Lab/X-Ray/Other</td><td><code>/opd/non-drug</code></td><td>1</td><td>เพิ่มค่าใช้จ่ายที่ตกหล่น</td><td><code>REIMBURSEMENT_OPD_NON_DRUG_CHARGE</code></td><td><a href="#d3">3</a></td></tr>
+      <tr><td>7</td><td>สรุปค่ารักษาพยาบาล</td><td><code>/opd/summary</code></td><td>1 · 2</td><td>หน้าตั้งต้น: เรียกเก็บ · ปิดสิทธิ · ออก/ยกเลิกใบเสร็จ</td><td><code>REIMBURSEMENT_OPD_EXPENSE_SUMMARY</code></td><td><a href="#d2">2</a></td></tr>
+      <tr><td>8</td><td>บันทึกปรับยอดเบิกได้ค่ารักษาพยาบาล</td><td><code>/opd/adjust-claim-opd</code></td><td>1</td><td>แบ่งยอด เครดิต/เบิกได้/เบิกไม่ได้/ส่วนลด ใหม่</td><td>—</td><td><a href="#d4">4</a></td></tr>
+      <tr><td>9</td><td>Hybrid Invoice</td><td><code>/opd/hybrid-invoice</code></td><td>1 · 3</td><td>ออกใบเรียกเก็บเป็นชุด + นำเข้ารอบ</td><td>—</td><td><a href="#d6">6</a></td></tr>
+
+      <tr><td colspan="7"><b>ผู้ป่วยใน</b> (กลุ่มเมนู — ลำดับต่างจากผู้ป่วยนอก)</td></tr>
+      <tr><td>10</td><td>ตรวจสอบสิทธิ</td><td><code>/ipd/rights</code></td><td>1</td><td>ดู/แก้สิทธิของ Admit · การรับส่งต่อ</td><td><code>REIMBURSEMENT_CHECK_IPD_RIGHT</code></td><td><a href="#d1">1</a></td></tr>
+      <tr><td>11</td><td>สรุปค่ารักษาพยาบาล</td><td><code>/ipd/summary</code></td><td>1 · 2</td><td>หน้าตั้งต้นของผู้ป่วยใน</td><td><code>REIMBURSEMENT_IPD_EXPENSE_SUMMARY</code></td><td><a href="#d2">2</a></td></tr>
+      <tr><td>12</td><td>บันทึกค่าใช้จ่าย Lab/X-Ray/Other</td><td><code>/ipd/non-drug</code></td><td>1</td><td>เพิ่มค่าใช้จ่ายที่ตกหล่น</td><td><code>REIMBURSEMENT_IPD_NON_DRUG_CHARGE</code></td><td><a href="#d3">3</a></td></tr>
+      <tr><td>13</td><td>บันทึกข้อมูลเรียกเก็บ</td><td><code>/ipd/create-invoice</code></td><td>1</td><td>ออกใบเรียกเก็บผู้ป่วยใน</td><td><code>REIMBURSEMENT_OPD_REIMBURSE</code> (ใช้รหัสของ OPD)</td><td><a href="#d5">5</a></td></tr>
+      <tr><td>14</td><td>บันทึกปรับยอดเบิกได้ค่ารักษาพยาบาลผู้ป่วยใน</td><td><code>/ipd/adjust-claim-ipd</code></td><td>1</td><td>แบ่งยอดใหม่ระดับ Admit</td><td>—</td><td><a href="#d4">4</a></td></tr>
+      <tr><td>15</td><td>Hybrid Invoice</td><td><code>/ipd/hybrid-invoice</code></td><td>1 · 3</td><td>เหมือนข้อ 9 สำหรับ Admit</td><td>—</td><td><a href="#d6">6</a></td></tr>
+
+      <tr><td colspan="7"><b>โอนค่าใช้จ่าย</b> (กลุ่มเมนู)</td></tr>
+      <tr><td>16</td><td>ผู้ป่วยนอกเป็นผู้ป่วยใน</td><td><code>/transfer/transfer-opd-ipd</code></td><td>1</td><td>ย้ายค่าใช้จ่าย OPD เข้า Admit</td><td>—</td><td><a href="#d8">8</a></td></tr>
+      <tr><td>17</td><td>ผู้ป่วยนอกระหว่างสิทธิ</td><td><code>/transfer/transfer-opd-opd</code></td><td>1</td><td>ย้ายค่าใช้จ่ายระหว่างสิทธิใน Visit</td><td>—</td><td><a href="#d8">8</a></td></tr>
+      <tr><td>18</td><td>ยกเลิกการโอนผู้ป่วยนอกระหว่างสิทธิ</td><td><code>/transfer/transfer-cancel-opd-opd</code></td><td>1</td><td>ย้อนข้อ 17</td><td>—</td><td><a href="#d8">8</a></td></tr>
+      <tr><td>19</td><td>ผู้ป่วยในระหว่างสิทธิ</td><td><code>/transfer/transfer-ipd-ipd</code></td><td>1</td><td>ย้ายค่าใช้จ่ายระหว่างสิทธิใน Admit</td><td>—</td><td><a href="#d8">8</a></td></tr>
+      <tr><td>20</td><td>ยกเลิกการโอนผู้ป่วยในระหว่างสิทธิ</td><td><code>/transfer/transfer-cancel-ipd-ipd</code></td><td>1</td><td>ย้อนข้อ 19</td><td>—</td><td><a href="#d8">8</a></td></tr>
+      <tr><td>21</td><td>ยกเลิกการโอนผู้ป่วยนอกเป็นผู้ป่วยใน</td><td><code>/transfer/transfer-ipd-opd</code></td><td>1</td><td>ย้อนข้อ 16</td><td>—</td><td><a href="#d8">8</a></td></tr>
+
+      <tr><td colspan="7"><b>รับเงิน · แก้ใบ · รอบ · ปิดบัญชี</b></td></tr>
+      <tr><td>22</td><td>บันทึกรับชำระเงิน</td><td><code>/receive-payment</code></td><td>6</td><td>รับเงินจากผู้จ่ายแล้วตัดลูกหนี้</td><td><code>REIMBURSEMENT_REIMBURSE_PAYMENT</code></td><td><a href="#d19">19</a></td></tr>
+      <tr><td>23</td><td>ตรวจสอบ/แก้ไขการเรียกเก็บ</td><td><code>/cancel-invoice</code></td><td>1 – 5</td><td>ค้น/แก้หัวใบ/เพิ่มลดรายการ/ยกเลิกใบเรียกเก็บ</td><td><code>REIMBURSEMENT_REIMBURSE_PAYMENT</code></td><td><a href="#d7">7</a></td></tr>
+      <tr><td>24</td><td>ตรวจสอบรอบส่งเบิก</td><td><code>/bill-rounds</code></td><td>3 · 4</td><td>สร้างรอบ ดึง Invoice ส่งออกไฟล์ ส่ง FDH ปิดรอบ</td><td><code>REIMBURSEMENT_REIMBURSE_ROUND</code></td><td><a href="#d12">12</a></td></tr>
+      <tr><td>25</td><td>ตรวจสอบรอบก่อนส่งเบิก</td><td><code>/pre-audit-bill-rounds</code></td><td>3</td><td>Run Pre-Audit ตรวจกฎก่อนส่ง</td><td><code>REIMBURSEMENT_REIMBURSE_ROUND</code></td><td><a href="#d13">13</a></td></tr>
+      <tr><td>26</td><td>ตรวจสอบการขอ Authen Code</td><td><code>/authen-code-lists</code></td><td>2</td><td>ตรวจ/เติม Authen Code ของสิทธิ UCS</td><td>—</td><td><a href="#d10">10</a></td></tr>
+      <tr><td>27</td><td>การปิดบัญชีผู้ป่วยนอก</td><td><code>/close-account-opd</code></td><td>2</td><td>ปิด/ยกเลิกปิดบัญชีเป็นชุด ตามวันให้บริการ</td><td>—</td><td><a href="#d11">11</a></td></tr>
+      <tr><td>28</td><td>การปิดบัญชีผู้ป่วยใน</td><td><code>/close-account-ipd</code></td><td>2</td><td>เหมือนข้อ 27 ตามวันจำหน่าย</td><td>—</td><td><a href="#d11">11</a></td></tr>
+
+      <tr><td colspan="7"><b>การส่งเบิก</b> (กลุ่มเมนู)</td></tr>
+      <tr><td>29</td><td>ตรวจสอบการส่งเบิก</td><td><code>/verify-claim/booking-claim</code></td><td>2 · 4 · 5</td><td>5 แท็บ: จองเคลม · ปิดสิทธิ · ผล REP · ผลรับเงิน · สถานะจาก สปสช.</td><td>—</td><td><a href="#d14">14</a></td></tr>
+      <tr><td>30</td><td>import REP</td><td><code>/verify-claim/import-rep</code></td><td>5</td><td>นำเข้าผลตรวจสอบ ตั้งสถานะ A/C/D/V</td><td>—</td><td><a href="#d15">15</a></td></tr>
+      <tr><td>31</td><td>เปลี่ยนรอบส่งเบิก</td><td><code>/verify-claim/change-disbursement-cycle</code></td><td>5 → 3</td><td>ย้ายใบที่ได้ผล REP แล้วไปรอบใหม่</td><td>—</td><td><a href="#d16">16</a></td></tr>
+      <tr><td>32</td><td>import Statement</td><td><code>/verify-claim/import-statement</code></td><td>5</td><td>นำเข้ายอดโอนเงิน</td><td>—</td><td><a href="#d17">17</a></td></tr>
+      <tr><td>33</td><td>ตรวจสอบรายการที่ยังไม่ปิดสิทธิ</td><td><code>/verify-claim/close-right</code></td><td>2</td><td>ดูรายการที่ยังไม่ได้ปิดสิทธิ สปสช. (ดูอย่างเดียว)</td><td>—</td><td><a href="#d9">9</a></td></tr>
+
+      <tr><td colspan="7"><b>อื่น ๆ</b></td></tr>
+      <tr><td>34</td><td>รายงาน</td><td><code>/export-report</code></td><td>ทุกขั้น</td><td>ทางเข้ารายงานทั้งหมด — ดูตาราง (ข)</td><td>—</td><td><a href="#d22">22</a></td></tr>
+      <tr><td>35</td><td>ลงบันทึกสถานะข้อมูลเรียกเก็บ</td><td><code>/cscd-upload</code></td><td>5</td><td>อัปโหลดผลกรมบัญชีกลาง (CSCD)</td><td><code>REIMBURSEMENT_REIMBURSE_STATUS</code></td><td><a href="#d18">18</a></td></tr>
+      <tr><td>36</td><td>บันทึกเลื่อนรอบการเรียกเก็บ</td><td><code>/round-upload</code></td><td>3</td><td>ย้ายใบเข้ารอบด้วยไฟล์ Excel</td><td><code>REIMBURSEMENT_REIMBURSE_ROUND_CHANGE</code></td><td><a href="#d16">16</a></td></tr>
+      <tr><td>37</td><td>ตรวจสอบรอบรับชำระ</td><td><code>/verify-receive</code></td><td>6</td><td>สร้างรอบใบเสร็จ · ดู/ยกเลิกใบรับชำระ</td><td>—</td><td><a href="#d20">20</a></td></tr>
+
+      <tr><td colspan="7"><b>รหัสหลัก</b> (สำหรับผู้ดูแลระบบ)</td></tr>
+      <tr><td>38</td><td>รหัสยาเวชภัณฑ์</td><td><code>/drug-registration</code></td><td>เตรียม</td><td>ดูแลรหัสยา/เวชภัณฑ์ที่ใช้คิดเงินและส่งออก</td><td><code>IT_ADMIN</code></td><td><a href="#d24">24</a></td></tr>
+      <tr><td>39</td><td>รหัสค่าใช้จ่าย</td><td><code>/expense-registration</code></td><td>เตรียม</td><td>ดูแลรหัสค่าบริการ/หัตถการ</td><td><code>IT_ADMIN</code></td><td><a href="#d24">24</a></td></tr>
+      <tr><td>40</td><td>รหัส Lab</td><td><code>/lab-registration</code></td><td>เตรียม</td><td>ดูแลรหัส Lab</td><td><code>IT_ADMIN</code></td><td><a href="#d24">24</a></td></tr>
+      <tr><td>41</td><td>รหัส X-Ray</td><td><code>/xray-registration</code></td><td>เตรียม</td><td>ดูแลรหัส X-Ray</td><td><code>IT_ADMIN</code></td><td><a href="#d24">24</a></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">ด้านบนสุดของแถบซ้ายยังมี <b>กลับเมนูหลัก</b> · ชื่อกลุ่ม “งานเรียกเก็บ” แสดงเมื่อผู้ใช้มีสิทธิ <code>OUTPATIENT_FINANCE</code> หรือ <code>INPATIENT_FINANCE</code> ·
+     ไอคอนโมดูลในหน้าหลักต้องมีสิทธิ <code>REIMBURSEMENT</code> · คลิกชื่อกลุ่ม (ผู้ป่วยนอก / ผู้ป่วยใน / โอนค่าใช้จ่าย / การส่งเบิก) เพื่อกางเมนูย่อย — ตัวชื่อกลุ่มเองไม่ได้เปิดหน้าจอ</p>
+
+  <h3>(ข) รายงาน — แถบซ้ายเมื่อเปิดเมนู “รายงาน”</h3>
+  <p>เมื่อเข้าเมนู 34 แถบซ้ายจะเปลี่ยนเป็นรายการรายงาน ประกอบด้วย 3 ชุดประจำ (20 รายงาน) + รายงานที่ติดตั้งเพิ่มผ่านผู้ดูแลระบบ</p>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ชุด</th><th>#</th><th>รายงาน</th><th>นำเข้าส่งบัญชีแล้ว</th></tr></thead>
+    <tbody>
+      <tr><td rowspan="16"><b>รายงานส่งบัญชี</b><br><span class="small"><code>/report/account-submission-report/…</code></span></td>
+          <td>R1</td><td>รายงานผู้ป่วยนอกรายบุคคล แยกตามสิทธิการรักษา</td><td>✓</td></tr>
+      <tr><td>R2</td><td>รายงานผู้ป่วยในรายบุคคล แยกตามสิทธิการรักษา</td><td>✓</td></tr>
+      <tr><td>R3</td><td>รายงานผู้ป่วยนอกรายบุคคล แยกตามสิทธิการรักษา (ไม่ปิดบัญชี)</td><td>✓</td></tr>
+      <tr><td>R4</td><td>รายงานผู้ป่วยในรายบุคคล แยกตามสิทธิการรักษา (ไม่ปิดบัญชี)</td><td>✓</td></tr>
+      <tr><td>R5</td><td>รายงานสรุปการบันทึกตั้งลูกหนี้ OPD</td><td></td></tr>
+      <tr><td>R6</td><td>รายงานสรุปการบันทึกตั้งลูกหนี้ IPD</td><td></td></tr>
+      <tr><td>R7</td><td>รายงานสรุปการบันทึกตั้งลูกหนี้ OPD (ไม่ปิดบัญชี)</td><td></td></tr>
+      <tr><td>R8</td><td>รายงานสรุปการบันทึกตั้งลูกหนี้ IPD (ไม่ปิดบัญชี)</td><td></td></tr>
+      <tr><td>R9</td><td>รายงานสรุปการบันทึกตั้งลูกหนี้ OPD ตามผังบัญชี</td><td></td></tr>
+      <tr><td>R10</td><td>รายงานสรุปการบันทึกตั้งลูกหนี้ IPD ตามผังบัญชี</td><td></td></tr>
+      <tr><td>R11</td><td>รายงานลูกหนี้ OPD สิทธิ 22 Detail</td><td>✓</td></tr>
+      <tr><td>R12</td><td>รายงานลูกหนี้ OPD สิทธิ 22 Summary</td><td></td></tr>
+      <tr><td>R13</td><td>รายงานลูกหนี้ IPD Detail</td><td>✓</td></tr>
+      <tr><td>R14</td><td>รายงานลูกหนี้ IPD Summary</td><td></td></tr>
+      <tr><td>R15</td><td>รายงานลูกหนี้ OPD Detail ไม่รวมสิทธิ 22,10</td><td>✓</td></tr>
+      <tr><td>R16</td><td>รายงานลูกหนี้ OPD Summary ไม่รวมสิทธิ 22,10</td><td></td></tr>
+      <tr><td rowspan="3"><b>ใบ น.ค.1 (New)</b><br><span class="small"><code>/report/new-nc1-report/…</code></span></td>
+          <td>N1</td><td>แบบรายการค่ารักษาพยาบาลผู้ป่วยนอก (ใบ น.ค.1)</td><td></td></tr>
+      <tr><td>N2</td><td>แบบรายการค่ารักษาพยาบาลผู้ป่วยนอก สิทธิ 22 (ใบ น.ค.1)</td><td></td></tr>
+      <tr><td>N3</td><td>แบบรายการค่ารักษาพยาบาลผู้ป่วยใน (ใบ น.ค.1)</td><td></td></tr>
+      <tr><td><b>C/Deny</b></td><td>C1</td><td>รายงาน Summary ลูกหนี้ติด C/Deny <span class="small">(<code>/report/c-deny-summary</code>)</span></td><td></td></tr>
+      <tr><td><b>ติดตั้งเพิ่ม</b></td><td>—</td><td colspan="2">รายงานที่ผู้ดูแลระบบผูกกับโมดูลงานเรียกเก็บใน <a href="05-admin-flow.html#m7">รายงานในระบบ</a> — แต่ละโรงพยาบาลมีไม่เท่ากัน และแสดงเฉพาะกลุ่มผู้ใช้ที่ได้รับสิทธิรายงานนั้น</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">ลำดับในแถบซ้ายสลับกับชื่อไฟล์บางตัว (ในเมนูเรียงรายบุคคลก่อน แล้วจึงสรุป) — ✓ = มีปุ่ม <b>นำเข้าส่งบัญชีแล้ว</b> · รายละเอียดแต่ละรายงานดู <a href="#d22">หัวข้อ 22</a></p>
+
+  <h3>(ค) หน้าที่ไม่มีในเมนู — เข้าได้จากปุ่มเท่านั้น</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หน้าจอ</th><th>เส้นทาง</th><th>เปิดจาก</th><th>ใช้ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td>ออกใบเสร็จ (เงินสด)</td><td><code>/opd/create-bill</code> · <code>/ipd/create-bill</code></td><td>ปุ่ม <b>ออกใบเสร็จ</b> ในสรุปค่ารักษาพยาบาล</td><td>รับเงินส่วนที่ผู้ป่วยจ่ายเอง — เงินสด บัตร โอน QR เช็ค มัดจำ · ส่วนลด</td></tr>
+      <tr><td>ยกเลิกใบเสร็จ (เงินสด)</td><td><code>/cancel-bill</code></td><td>ปุ่ม <b>ยกเลิกใบเสร็จ</b> ในสรุปค่ารักษาพยาบาล</td><td>ยกเลิกใบเสร็จเงินสด (ระบุเหตุผล + รหัสผ่าน) · ยกเลิกไม่ได้ถ้ารอบปิด</td></tr>
+      <tr><td>ตรวจสอบรายการเรียกเก็บ</td><td><code>/invoice-lists</code></td><td>— (เมนูถูกปิดไว้)</td><td>หน้าเดียวกับตรวจสอบรอบส่งเบิก ไม่มีความต่าง</td></tr>
+      <tr><td>หน้าเพิ่ม/แก้รหัส</td><td><code>/drug-registration-manage</code> ฯลฯ</td><td>ปุ่มเพิ่ม/แก้ในเมนู 38–41</td><td>ฟอร์มรายละเอียดรหัส (แถบซ้ายเหลือแค่ปุ่ม “กลับ”)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>(ง) เมนูในโมดูลอื่นที่งานเรียกเก็บต้องพึ่ง</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมนู</th><th>เส้นทาง</th><th>ผลกับงานเรียกเก็บ</th></tr></thead>
+    <tbody>
+      <tr><td>ผู้ดูแลระบบ › กำหนดสิทธิการรักษา</td><td><code>/admin/hosp-right</code></td><td>ติ๊ก <b>Auto Invoice</b> / <b>Auto Booking Claim</b> ต่อสิทธิ — กำหนดว่าระบบจะออกใบ/จองเคลมเองหรือไม่ (<a href="#d23">หัวข้อ 23</a>)</td></tr>
+      <tr><td>ผู้ดูแลระบบ › กำหนดการเรียกเก็บพิเศษ › กำหนดค่าใช้จ่ายตามสิทธิ</td><td><code>/admin/hosp-special-claim/expenses-list</code></td><td>ค่าใช้จ่ายที่คิดต่างตามสิทธิ</td></tr>
+      <tr><td>ผู้ดูแลระบบ › กำหนดการเรียกเก็บพิเศษ › กำหนด ICD ตามสิทธิ</td><td><code>/admin/hosp-special-claim/icds-list</code></td><td>ICD → สิทธิ · ระบบโอนค่าใช้จ่ายให้ทุกวัน 20:00 (นำเข้าเป็นไฟล์ได้)</td></tr>
+      <tr><td>ผู้ดูแลระบบ › รายงานในระบบ</td><td><code>/admin/reported-form</code></td><td>ติดตั้งรายงานเพิ่มให้หน้ารายงานของงานเรียกเก็บ</td></tr>
+      <tr><td>ผู้ดูแลระบบ › ผู้ใช้งาน</td><td><code>/admin/user/users</code></td><td>ต้องมี<b>เลขบัตรประชาชน</b>ของผู้ใช้ จึงกดปิดสิทธิ สปสช. ได้</td></tr>
+      <tr><td>การเงิน › รายงาน</td><td><code>/finance/inpatientfinance/export-report</code></td><td>หน้ารายงานของงานการเงิน (ใช้หน้าจอเดียวกัน แต่ชุดรายงานต่างกัน)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <b class="note__label">สิทธิในการใช้งาน — เมนูถูกซ่อน แต่หน้าจอไม่ได้ถูกล็อก</b>
+    <p>รหัสสิทธิในตารางมีผลแค่<b>ซ่อน/แสดงเมนู</b> · ถ้าผู้ใช้รู้ที่อยู่หน้าจอแล้วพิมพ์เข้าไปตรง ๆ ระบบไม่ได้ห้าม ·
+       และเมนู <b>บันทึกข้อมูลเรียกเก็บ ของผู้ป่วยใน</b> ใช้รหัสสิทธิเดียวกับของผู้ป่วยนอก
+       (<code>REIMBURSEMENT_OPD_REIMBURSE</code>) — ให้สิทธิ OPD ก็จะเห็นเมนูของ IPD ด้วย</p>
+  </div>
+
+  <h2 id="status">วงจรสถานะใบเรียกเก็บ</h2>
+
+  <p>ใบเรียกเก็บทุกใบมี <b>สถานะ</b> เป็นตัวอักษร/ตัวเลข 1 ตัว เห็นได้ในหน้าตรวจสอบ/แก้ไขการเรียกเก็บ และในรายงาน
+     ตารางนี้บอกว่า<b>ใครหรืออะไรเปลี่ยนสถานะ</b> — สำคัญเพราะหลายเมนูเขียนทับสถานะกันได้</p>
+
+  <ul class="flow">
+    <li><b>1</b><span>ส่งเบิก/วางบิล</span></li>
+    <li class="is-lis"><b>A · C · D · V</b><span>ผลจาก REP</span></li>
+    <li class="is-lis"><b>S · 2</b><span>ผลจาก Statement</span></li>
+    <li class="is-done"><b>P</b><span>ออกใบเสร็จรับเงินแล้ว</span></li>
+  </ul>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>สถานะ</th><th>ความหมาย</th><th>ตั้งโดย</th><th>ต้องทำอะไรต่อ</th></tr></thead>
+    <tbody>
+      <tr><td><b>1</b></td><td>ส่งเบิก/วางบิล</td><td>ตอนออกใบเรียกเก็บทุกช่องทาง · ตอนส่ง FDH · ตอนยกเลิกใบรับชำระ (ย้อนกลับเป็น 1)</td><td>จัดเข้ารอบ ส่งเบิก รอผล</td></tr>
+      <tr><td><b>A</b></td><td>ผ่านการตรวจสอบขั้นต้น</td><td>import REP (UCS / UCS-ORF)</td><td>รอ Statement / รอโอนเงิน</td></tr>
+      <tr><td><b>C</b></td><td>ไม่ผ่านการตรวจสอบขั้นต้น — เงื่อนไข C</td><td>import REP</td><td>ดู “วิธีแก้ไข” ในหน้า import REP → แก้ข้อมูล → <a href="#d16">เปลี่ยนรอบ</a> ส่งใหม่</td></tr>
+      <tr><td><b>D</b></td><td>ไม่ผ่าน — ถูกปฏิเสธ (DENY)</td><td>import REP</td><td>ตรวจสาเหตุ พิจารณาอุทธรณ์</td></tr>
+      <tr><td><b>V</b></td><td>ผ่าน แต่ติดเงื่อนไข Verify</td><td>import REP</td><td>เตรียมเอกสารยืนยันเพิ่ม</td></tr>
+      <tr><td><b>S</b></td><td>ได้รับ Statement โอนเงินจาก สปสช.</td><td>import Statement (แถวที่ยังไม่มีเลข STM)</td><td>รอเลข Statement / บันทึกรับชำระ</td></tr>
+      <tr><td><b>2</b></td><td>ตัดลูกหนี้แล้ว</td><td>import Statement (แถวที่มีเลข STM)</td><td>—</td></tr>
+      <tr><td><b>P</b></td><td>ออกใบเสร็จรับเงินแล้ว</td><td>บันทึกรับชำระ เมื่อ <b>ยอดรับ + ส่วนขาด = ยอดเรียกเก็บ พอดี</b> (ถ้าไม่พอดี กลับเป็น 1)</td><td>—</td></tr>
+      <tr><td><b>R</b></td><td>สปสช. ส่ง REP รอรับชำระ</td><td>มีในรายการตัวเลือก แต่ระบบ<b>ไม่ได้ตั้งค่านี้</b>อัตโนมัติ</td><td>—</td></tr>
+      <tr><td>ค่าอื่น ๆ</td><td>ตามไฟล์กรมบัญชีกลาง</td><td>ลงบันทึกสถานะข้อมูลเรียกเก็บ (CSCD) เขียนค่าจากคอลัมน์ Status ของไฟล์ลงไปตรง ๆ · และแก้มือได้ในหน้าตรวจสอบ/แก้ไขการเรียกเก็บ</td><td>ตรวจไฟล์ให้ใช้รหัสข้างบน</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--warn">
+    <b class="note__label">สถานะถูกเขียนทับได้ — ดูลำดับให้ดี</b>
+    <p>สถานะเป็นช่องเดียว ใครทำทีหลังชนะ · เช่น ได้ <b>A</b> จาก REP แล้วบันทึกรับชำระไม่ครบยอด → กลายเป็น <b>1</b> ·
+       นำเข้า Statement ซ้ำหลังรับชำระแล้ว → <b>P</b> กลายเป็น <b>S</b> หรือ <b>2</b> ·
+       ยกเลิกใบรับชำระ → ทุกใบในนั้นกลับเป็น <b>1</b> ไม่ว่าเดิมเป็นอะไร</p>
+  </div>
+
+  <h2 id="routine">จังหวะงานประจำ</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมื่อไร</th><th>ทำอะไร</th><th>เมนู</th></tr></thead>
+    <tbody>
+      <tr><td rowspan="4"><b>ทุกเช้า</b></td><td>ตรวจว่ามี Invoice อัตโนมัติของเมื่อวานครบ (ดูการ์ด “ผู้ป่วยนอกที่ยังไม่เรียกเก็บ” ไม่ควรค้างผิดปกติ)</td><td>Dashboard</td></tr>
+      <tr><td>ค้นสถานะ <b>ไม่สำเร็จ</b> ในแท็บจองเคลม แล้วกดส่งจองเคลมใหม่</td><td>ตรวจสอบการส่งเบิก</td></tr>
+      <tr><td>เคลียร์ Authen Code ที่ <b>ยังไม่ขอ</b> ของสิทธิ UCS</td><td>ตรวจสอบการขอ Authen Code</td></tr>
+      <tr><td>ตรวจรายการที่ยังไม่ได้ปิดสิทธิของเมื่อวาน แล้วเข้าไปกดปิดสิทธิรายตัว</td><td>ตรวจสอบรายการที่ยังไม่ปิดสิทธิ → สรุปค่ารักษาพยาบาล</td></tr>
+      <tr><td><b>ระหว่างวัน</b></td><td>ออกใบเรียกเก็บเคสที่ระบบอัตโนมัติไม่ทำ (IPD · สิทธิที่ไม่ได้ตั้ง Auto · ODS)</td><td>สรุปค่ารักษาพยาบาล → เรียกเก็บ / Hybrid Invoice</td></tr>
+      <tr><td rowspan="3"><b>ก่อนส่งเบิก</b></td><td>ปิดบัญชีของช่วงวันที่จะส่ง</td><td>การปิดบัญชีผู้ป่วยนอก/ใน</td></tr>
+      <tr><td>ดึง Invoice เข้ารอบ → Run Pre-Audit → Submit</td><td>ตรวจสอบรอบก่อนส่งเบิก / รอบส่งเบิก</td></tr>
+      <tr><td>ส่งออกไฟล์ตามผู้จ่าย หรือส่ง FDH (UCS) → ปิดรอบ</td><td>ตรวจสอบรอบส่งเบิก</td></tr>
+      <tr><td rowspan="2"><b>เมื่อผลกลับ</b></td><td>import REP → ดูแถวที่ไม่ผูก Invoice และแถวติด C/Deny</td><td>import REP</td></tr>
+      <tr><td>แก้แล้วย้ายเข้ารอบใหม่</td><td>เปลี่ยนรอบส่งเบิก</td></tr>
+      <tr><td rowspan="3"><b>เมื่อได้เงิน</b></td><td>import Statement / อัปโหลดผล CSCD</td><td>import Statement / ลงบันทึกสถานะฯ</td></tr>
+      <tr><td>บันทึกรับชำระ</td><td>บันทึกรับชำระเงิน</td></tr>
+      <tr><td>สอบทานใบรับชำระ</td><td>ตรวจสอบรอบรับชำระ</td></tr>
+      <tr><td><b>สิ้นเดือน</b></td><td>รายงานส่งบัญชี → ส่งฝ่ายบัญชี → นำไฟล์กลับเข้า “นำเข้าส่งบัญชีแล้ว”</td><td>รายงาน › รายงานส่งบัญชี</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2 id="prep">สิ่งที่ต้องเตรียม</h2>
+
+  <h3>ระดับระบบ (ทำครั้งแรก / เมื่อมีการเปลี่ยน)</h3>
+  <ul class="prep">
+    <li><b>สิทธิการรักษา</b> ตั้งครบ พร้อมกลุ่มสิทธิ (เช่น UCS) — หลายหน้าจอกรองตามกลุ่มสิทธิ เช่น Authen Code และส่ง FDH ใช้ได้เฉพาะ UCS</li>
+    <li>ที่เมนู <span class="menuname">ผู้ดูแลระบบ <i>›</i> กำหนดสิทธิการรักษา</span> ติ๊ก <b>Auto Invoice</b> สำหรับสิทธิที่ต้องการให้ระบบออกใบเรียกเก็บเอง
+        และ <b>Auto Booking Claim</b> สำหรับสิทธิที่ต้องจองเคลม FDH อัตโนมัติ —
+        ต้องติ๊ก Auto Invoice ที่<b>สิทธิหลักของ Visit</b>ด้วย ไม่อย่างนั้นสิทธิรองจะถูกข้าม</li>
+    <li>ที่เมนู <span class="menuname">ผู้ดูแลระบบ <i>›</i> กำหนดการเรียกเก็บพิเศษ</span> — <b>กำหนดค่าใช้จ่ายตามสิทธิ</b> และ <b>กำหนด ICD ตามสิทธิ</b>
+        (ICD ที่ตั้งไว้จะทำให้ระบบโอนค่าใช้จ่ายของวันนั้นไปสิทธิพิเศษตอน 20:00 — ดู <a href="#d23">หัวข้อ 23</a>)</li>
+    <li><b>Token เชื่อมต่อ สปสช./FDH</b> ที่ยังไม่หมดอายุ — ใช้ทั้งปิดสิทธิ จองเคลม ส่ง FDH และอัปเดตสถานะ</li>
+    <li><b>เลขบัตรประชาชนของผู้ใช้</b> ที่จะกดปิดสิทธิ ต้องบันทึกไว้ในข้อมูลผู้ใช้ ไม่อย่างนั้นปิดสิทธิไม่ได้</li>
+    <li><b>รอบส่งเบิก</b>ของแต่ละสิทธิที่เปิดอยู่และครอบคลุมวันนี้ — หน้าออกใบเรียกเก็บบังคับเลือกรอบ
+        (ยกเว้นสิทธิที่ตั้ง Auto Invoice ระบบจะสร้างรอบให้เอง)</li>
+    <li><b>รอบใบเสร็จ</b> (ประเภทรับชำระเรียกเก็บ) สำหรับใช้ตอนบันทึกรับชำระ</li>
+  </ul>
+
+  <h3>ระดับผู้ป่วยแต่ละราย</h3>
+  <ul class="prep">
+    <li><b>สิทธิถูกต้อง</b> รวมถึงโรงพยาบาลหลัก/รอง (ระบบดึงมาเติมในใบเรียกเก็บให้)</li>
+    <li><b>รหัสวินิจฉัย</b> ครบทุกห้องตรวจที่มียอดเครดิต (OPD) — ถ้าขาด ปุ่มเรียกเก็บจะแจ้ง <i>“มีบาง visit ไม่ได้ระบุ Diag”</i></li>
+    <li><b>Authen Code และประเภทการมารับบริการ</b> สำหรับสิทธิ UCS</li>
+    <li><b>เลขขออนุมัติ EDC</b> — ช่องนี้บังคับกรอกในหน้าออกใบเรียกเก็บทั้ง OPD และ IPD</li>
+    <li>เคสอุบัติเหตุ/ฉุกเฉิน: กรณีการเรียกเก็บ A/E, AE Type, EM Type, ข้อมูลคู่กรณี · เคสส่งต่อ: ข้อมูล Refer ·
+        สิทธิข้าราชการ: เลขที่หนังสือ หน่วยงานต้นสังกัด เจ้าของสิทธิ</li>
+  </ul>
+
+  <!-- ================================================================== -->
+  <!-- ส่วนที่ 2 รายละเอียด                                                -->
+  <!-- ================================================================== -->
+
+  <hr>
+  <p class="small"><b>ส่วนที่ 2 · รายละเอียดรายเมนู</b> — เรียงตามวงจร ตั้งลูกหนี้ → ปิด → รอบ → ส่งเบิก → รับผล → รับเงิน → ติดตามผล</p>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d1">1 · ตรวจสอบสิทธิ (ผู้ป่วยนอก / ผู้ป่วยใน)</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> ผู้ป่วยนอก › ตรวจสอบสิทธิ · ผู้ป่วยใน › ตรวจสอบสิทธิ</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/opd/rights</code> · <code>/ipd/rights</code></span>
+    <span class="role"><b>ขั้น:</b> 1 ตั้งลูกหนี้</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ดูว่าการมารับบริการครั้งนี้ใช้สิทธิอะไร ยอดแต่ละสิทธิเป็นเท่าไร และเพิ่ม/แก้/ลบสิทธิให้ถูกก่อนออกใบเรียกเก็บ</dd>
+    <dt>ทำเมื่อไร</dt><dd>ก่อนออกใบเรียกเก็บ หรือเมื่อ REP กลับมาว่าสิทธิผิด</dd>
+    <dt>ต้องมีก่อน</dt><dd>เลือกผู้ป่วยจากช่องค้นหาด้านบน (OPD: HN/บัตร · IPD: AN/HN)</dd>
+    <dt>ได้อะไร</dt><dd>สิทธิที่ถูกต้องและยอด เครดิต / เบิกได้ / เบิกไม่ได้ ต่อสิทธิ — เป็นฐานของใบเรียกเก็บ</dd>
+  </dl>
+
+  <h3>รายละเอียด</h3>
+  <p>หน้านี้เป็นหน้าจอเดียวกับ <a href="#d2">สรุปค่ารักษาพยาบาล</a> แต่<b>ซ่อนแถวปุ่มเรียกเก็บ/ใบเสร็จ</b> ไว้ — ใช้ดูและแก้สิทธิอย่างเดียว</p>
+  <ol class="menu">
+    <li><b>เลือก Service No.</b> (OPD) — ผู้ป่วยในใช้ Admit ที่เลือกจากช่องค้นหา
+      <p>ผู้ป่วยในมีกล่องแสดง<b>เงินมัดจำและยอดค้างชำระ</b>เพิ่มด้านบน</p></li>
+    <li><b>ตารางสิทธิการรักษา</b>
+      <p>คอลัมน์: สิทธิการรักษา · เลขที่เครดิต · สิทธิหลัก · จำนวนเงิน · เครดิต · เบิกได้ · เบิกไม่ได้ · ส่วนลด · ชำระแล้ว · ค้างชำระ · <b>เรียกเก็บแล้ว</b> · รับรองสิทธิ</p>
+      <p>แท็บอื่น: <b>Visit วันนี้</b> (แยกยอดตามห้องตรวจ) · <b>ประวัติส่วนลด</b> · ผู้ป่วยในมีแท็บ <b>การรับส่งต่อ</b> (เลขที่ใบส่งตัว · สถานพยาบาล · ออก/เข้า · วันที่)</p></li>
+    <li><b>เพิ่ม / แก้ไข / ลบสิทธิ</b>
+      <p>ปุ่ม <b>+</b> เพิ่มสิทธิ (ผู้ใช้ภายนอกไม่เห็นปุ่มนี้) · ไอคอนแก้ไขเปิดฟอร์มสิทธิ ·
+         ไอคอนลบจะแสดงเฉพาะสิทธิที่ระบบอนุญาตให้ลบ · ผู้ป่วยในมีไอคอนพิมพ์สรุปค่าใช้จ่ายรายสิทธิ</p></li>
+    <li><b>คลิกแถวสิทธิ</b> — ตารางรายละเอียดค่ารักษาด้านล่างจะกรองเฉพาะสิทธินั้น
+      <p>ตารางค่ารักษามีตัวกรอง ประเภทค่าใช้จ่าย · มุมมองตามสิทธิ · ช่วงวันที่ · Ward · ไอคอนแก้ไขบนรายการพาไปหน้า
+         <a href="#d3">บันทึกค่าใช้จ่าย Lab/X-Ray/Other</a> พร้อมเปิดรายการนั้นให้</p></li>
+  </ol>
+  <p class="small">พิมพ์ได้: รายการค่ารักษาพยาบาล · ใบแจงรายละเอียดค่ารักษาพยาบาลผู้ป่วย ·
+     (IPD) แบบขอรับค่าใช้จ่ายกรณีค่า Vascular Access · แบบฟอร์ม/ใบรับรองสิทธิผู้ป่วยใน · ใบสรุปค่ารักษาพยาบาลของผู้ป่วยใน</p>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d2">2 · สรุปค่ารักษาพยาบาล — หน้าตั้งต้นของการเรียกเก็บ</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> ผู้ป่วยนอก/ผู้ป่วยใน › สรุปค่ารักษาพยาบาล</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/opd/summary</code> · <code>/ipd/summary</code></span>
+    <span class="role"><b>ขั้น:</b> 1 ตั้งลูกหนี้ · 2 ปิดสิทธิ</span>
+    <span class="role"><b>ความถี่:</b> ทุกเคส</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>จุดเริ่มของทุกงานรายผู้ป่วย — กดปุ่ม <b>เรียกเก็บ</b> เพื่อไปออกใบเรียกเก็บ, <b>ปิดสิทธิ</b> กับ สปสช., ออก/ยกเลิกใบเสร็จ และยกเลิกใบเรียกเก็บ</dd>
+    <dt>ทำเมื่อไร</dt><dd>ทุกครั้งที่จะออกใบเรียกเก็บด้วยมือ · คลิกแถวใน Dashboard ก็มาที่หน้านี้</dd>
+    <dt>ต้องมีก่อน</dt><dd>เลือกผู้ป่วย · OPD ต้องเลือก Service No. · สิทธิมียอดเครดิต &gt; 0</dd>
+    <dt>ได้อะไร</dt><dd>ทางเข้าไปหน้าออกใบเรียกเก็บ พร้อมสิทธิ/Visit ที่เลือกติดไปด้วย</dd>
+  </dl>
+
+  <h3>รายละเอียด — แถวปุ่มด้านบน</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ปุ่ม</th><th>กดได้เมื่อ</th><th>ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><b>ปิดสิทธิ</b> / ปิดสิทธิแล้ว</td><td>ยอดเครดิตรวม &gt; 0 และยังไม่เคยปิดสำเร็จ</td><td>ส่งยอดของสิทธิที่เลือกไปปิดสิทธิกับ สปสช. — ดู <a href="#d9">หัวข้อ 9</a></td></tr>
+      <tr><td><b>ออกใบเสร็จ</b></td><td>ยอดเงินสดค้างชำระ &gt; 0</td><td>ไปหน้าออกใบเสร็จเงินสด (ส่วนที่ผู้ป่วยจ่ายเอง)</td></tr>
+      <tr><td><b>ยกเลิกใบเสร็จ</b></td><td>มียอดชำระแล้ว &gt; 0</td><td>ไปหน้ายกเลิกใบเสร็จเงินสด</td></tr>
+      <tr><td><b>เรียกเก็บ</b></td><td>สิทธิที่เลือกมีเครดิต &gt; 0 และ<b>ไม่ใช่สิทธิเงินสด</b></td><td>ตรวจเงื่อนไขด้านล่าง แล้วไป <a href="#d5">บันทึกข้อมูลเรียกเก็บ</a></td></tr>
+      <tr><td><b>ยกเลิก เรียกเก็บ</b></td><td>เหมือนปุ่มเรียกเก็บ</td><td>ไป <a href="#d7">ตรวจสอบ/แก้ไขการเรียกเก็บ</a> ของผู้ป่วยนี้</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p><b>ก่อนพาไปหน้าออกใบเรียกเก็บ ปุ่มเรียกเก็บตรวจตามลำดับ:</b></p>
+  <ol class="steps">
+    <li>OPD ยังไม่เลือก Service No. → <i>“กรุณาเลือก 'Service No.'”</i> · IPD ไม่มี Admit → <i>“ไม่พบ Admit”</i></li>
+    <li>ยังไม่เลือกสิทธิ → <i>“กรุณาเลือก 'สิทธิการรักษา'”</i> (ถ้าไม่คลิกเลือก ระบบใช้<b>สิทธิแถวแรก</b>)</li>
+    <li>OPD มีห้องตรวจที่มียอดเครดิตของสิทธินี้แต่ไม่มีรหัสวินิจฉัย → <i>“มีบาง visit ไม่ได้ระบุ Diag”</i> และหยุด</li>
+  </ol>
+
+  <div class="note">
+    <b class="note__label">ผู้ป่วยในไม่ถูกตรวจรหัสวินิจฉัย</b>
+    <p>ข้อความ <i>“admit ไม่ได้ระบุ Pre-Diagnosis”</i> มีอยู่ในหน้าจอ แต่การตรวจฝั่ง IPD ถูกปิดไว้ —
+       ออกใบเรียกเก็บผู้ป่วยในได้แม้ยังไม่มีรหัสวินิจฉัย ต้องตรวจเองก่อนส่งเบิก</p>
+  </div>
+
+  <p class="small">พิมพ์ได้เพิ่มจากหน้าตรวจสอบสิทธิ: ใบแจงรายละเอียดค่ารักษาพยาบาลผู้ป่วยตามสิทธิ · ใบแสดงรายการค่ารักษาพยาบาล (แบบ 7102) ·
+     ใบรายละเอียดค่ารักษาพยาบาล (แบบ 7102 พรบ.) — ต้องมีใบเรียกเก็บของสิทธินั้นแล้ว ไม่อย่างนั้นขึ้น <i>“ไม่มีรายการ bill สำหรับสิทธินี้”</i> ·
+     (IPD) ใบแจ้งค่าใช้จ่ายภาษาอังกฤษ · Summary DC · รายการสรุปค่าใช้จ่ายผู้ป่วย</p>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d3">3 · บันทึกค่าใช้จ่าย Lab/X-Ray/Other</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> ผู้ป่วยนอก/ผู้ป่วยใน › บันทึกค่าใช้จ่าย Lab/X-Ray/Other</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/opd/non-drug</code> · <code>/ipd/non-drug</code></span>
+    <span class="role"><b>ขั้น:</b> 1 ตั้งลูกหนี้</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>เพิ่มหรือแก้ค่าใช้จ่ายที่ไม่ใช่ยา (Lab, X-Ray, หัตถการ, ค่าบริการ) ที่ตกหล่น ก่อนออกใบเรียกเก็บ</dd>
+    <dt>ทำเมื่อไร</dt><dd>เมื่อตรวจสรุปค่ารักษาแล้วพบว่ารายการไม่ครบ</dd>
+    <dt>ต้องมีก่อน</dt><dd>เลือกผู้ป่วย (ไม่เลือกจะขึ้น <i>“กรุณาเลือกคนไข้”</i>) · <b>ยังไม่ปิดบัญชี</b> — ถ้าปิดแล้วระบบไม่ให้เพิ่ม</dd>
+    <dt>ได้อะไร</dt><dd>รายการค่าใช้จ่ายใหม่ที่แบ่งยอดตามสิทธิแล้ว พร้อมออกใบเรียกเก็บ</dd>
+  </dl>
+
+  <h3>รายละเอียด</h3>
+  <ol class="menu">
+    <li><b>เลือกบริบท</b>
+      <p>OPD เลือก Service · สิทธิ · ห้องตรวจ · แพทย์ ที่แถบผู้ป่วย · IPD เลือกสิทธิและ Admit ·
+         ด้านขวาเป็นรายการ Order เดิม คลิกเพื่อเปิดแก้</p></li>
+    <li><b>หัว Order</b>
+      <p>วันที่ (IPD หรือนัดล่วงหน้า; ล็อกเมื่อบันทึกแล้ว) · <b>หน่วยส่ง*</b> · <b>หน่วยทำ*</b> · Package ·
+         ขอผลด่วน · Auto Accept · (X-Ray) ไม่ต้องการผลอ่าน</p></li>
+    <li><b>เพิ่มรายการ</b>
+      <p>ปุ่ม แทรกรายการ · แบบรายการ lab / XRay / Order · เลือกทั้งหมด · ลบที่เลือก</p>
+      <p>คอลัมน์: ประเภทค่าใช้จ่าย · รายการ · ราคา/หน่วย · จำนวน · จำนวนเงิน · เครดิต · เบิกได้ · เบิกไม่ได้ · ส่วนลด · ค้างชำระ · ชำระแล้ว · <b>เรียกเก็บแล้ว</b> · สิทธิ · หมายเหตุ · ผู้บันทึก</p></li>
+    <li><b>บันทึก</b> — ระบบตรวจตามลำดับ
+      <ul>
+        <li>ราคาอยู่นอกช่วงต่ำสุด–สูงสุดที่กำหนด → <i>“กรุณากรอกราคาให้ถูกต้อง”</i></li>
+        <li>X-Ray ผู้ป่วยนอกไม่ได้เลือกแพทย์ → <i>“กรุณาเลือกแพทย์”</i></li>
+        <li>ขาดประเภทค่าใช้จ่าย สิทธิ หน่วยทำ หรือหน่วยส่ง → <i>“กรุณากรอกข้อมูลให้ครบถ้วน”</i></li>
+        <li>รายการซ้ำ/Lab ซ้ำรอบ → ขึ้นหน้าต่างให้ยืนยันหรือระบุเหตุผล</li>
+        <li>มียอดเบิกไม่ได้ → ถาม <i>“ผู้ป่วยมียอดเบิกไม่ได้ ยืนยันที่จะบันทึก”</i> (ยกเว้นรายการ Lab ที่ไม่ถาม)</li>
+      </ul></li>
+  </ol>
+
+  <div class="note note--warn">
+    <b class="note__label">รายการที่แก้ไม่ได้</b>
+    <p>รายการที่ <b>ล็อกไว้</b> (ไอคอนกุญแจ) · แบ่งสิทธิแล้ว · ออกใบเรียกเก็บ/ใบเสร็จไปแล้ว — แก้ไม่ได้ ·
+       ถ้าทุกรายการใน Order แก้ไม่ได้ ทั้งฟอร์มจะถูกปิด ·
+       หน้าผู้ป่วยนอกของคนที่ <b>Admit อยู่</b> จะขึ้น <i>“ผู้ป่วยมีการ Admit อยู่”</i> และปิดปุ่มบันทึก</p>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d4">4 · บันทึกปรับยอดเบิกได้ค่ารักษาพยาบาล</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> ผู้ป่วยนอก › บันทึกปรับยอดเบิกได้ค่ารักษาพยาบาล · ผู้ป่วยใน › …ผู้ป่วยใน</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/opd/adjust-claim-opd</code> · <code>/ipd/adjust-claim-ipd</code></span>
+    <span class="role"><b>ขั้น:</b> 1 ตั้งลูกหนี้</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>แบ่งยอดของแต่ละรายการค่าใช้จ่ายใหม่เป็น <b>เครดิต / เบิกได้ / เบิกไม่ได้</b> และให้ส่วนลด เมื่อยอดที่ระบบคิดตามอัตราไม่ตรงความจริง</dd>
+    <dt>ทำเมื่อไร</dt><dd>ก่อนออกใบเรียกเก็บ เมื่อหน้าสรุปค่ารักษาแสดงยอดเครดิตผิด</dd>
+    <dt>ต้องมีก่อน</dt><dd>เลือกผู้ป่วย · OPD เลือก Service · IPD เลือก Admit · ถ้าจะให้ส่วนลด ต้องมี<b>เลขที่ส่วนลด</b></dd>
+    <dt>ได้อะไร</dt><dd>ยอดในรายการค่าใช้จ่ายถูกเขียนทับด้วยค่าใหม่ — ยอดที่จะไปออกใบเรียกเก็บเปลี่ยนตาม</dd>
+  </dl>
+
+  <h3>รายละเอียด</h3>
+  <ol class="menu">
+    <li><b>เลือกมุมมองและช่วงวันที่</b>
+      <p>OPD: มุมมองตามสิทธิ / ตาม Service / ตาม Clinic · IPD: มุมมองตามสิทธิ / ตาม Admit · ตั้งแต่วันที่ – ถึง</p></li>
+    <li><b>เลือกรายการ</b>
+      <p>คอลัมน์: รายการ · จำนวนเงิน · <b>เครดิต</b> · <b>เบิกได้</b> (แก้ได้) · เบิกไม่ได้ (คำนวณให้) · <b>ส่วนลด</b> · ชำระแล้ว · ตั้งเบิกแล้ว · ค้างชำระ</p>
+      <p>เลือกไม่ได้: รายการที่<b>ชำระแล้ว</b> หรือ<b>ออกใบเรียกเก็บแล้ว</b></p></li>
+    <li><b>ส่วนลด (แท็บ บันทึกส่วนลด)</b>
+      <p>เลือกเลขที่ส่วนลด หรือกด <b>ขอเลขที่ส่วนลด</b> แล้วจึงกรอก % ลด / จำนวนเงินส่วนลด · % เครดิต / จำนวนเครดิต · หมายเหตุ ·
+         แท็บ <b>ประวัติส่วนลด</b> ดูส่วนลดที่เคยให้</p></li>
+    <li><b>บันทึก</b>
+      <p>ใส่ส่วนลดแต่ไม่มีเลขที่ส่วนลด → <i>“กรุณาระบุDiscountId”</i> · บันทึกโดยไม่เลือกรายการ → <i>“บันทึกไม่สำเร็จ”</i> ·
+         หน้านี้<b>ไม่ถามรหัสผ่าน</b>ก่อนบันทึก</p></li>
+  </ol>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d5">5 · บันทึกข้อมูลเรียกเก็บ — ออกใบเรียกเก็บ (Invoice)</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> ผู้ป่วยนอก/ผู้ป่วยใน › บันทึกข้อมูลเรียกเก็บ</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/opd/create-invoice</code> · <code>/ipd/create-invoice</code></span>
+    <span class="role"><b>ขั้น:</b> 1 ตั้งลูกหนี้</span>
+    <span class="role"><b>ความถี่:</b> ทุกเคสที่ระบบไม่ได้ออกให้อัตโนมัติ</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>เลือกรายการค่าใช้จ่ายส่วนเครดิตของสิทธิหนึ่ง กรอกข้อมูลที่ผู้จ่ายใช้ตรวจสอบ แล้วออกเป็นใบเรียกเก็บ 1 ใบ</dd>
+    <dt>ทำเมื่อไร</dt><dd>หลังตรวจสิทธิและยอดในหน้าสรุปค่ารักษาเรียบร้อย · IPD ทำหลังจำหน่าย</dd>
+    <dt>ต้องมีก่อน</dt><dd><b>ต้องเข้าจากปุ่ม เรียกเก็บ</b> ในหน้าสรุปค่ารักษา (กดจากเมนูตรง ๆ ระบบจะเด้งกลับไปหน้าสรุป) ·
+        มี<b>รอบส่งเบิก</b>ที่เปิดอยู่ของสิทธินั้น · มี<b>เลขขออนุมัติ EDC</b></dd>
+    <dt>ได้อะไร</dt><dd>ใบเรียกเก็บประเภท “เรียกเก็บ” สถานะ <b>1 (ส่งเบิก/วางบิล)</b> พร้อม Invoice No. อยู่ในรอบที่เลือกทันที ·
+        รายการที่เลือกขึ้นยอดในช่อง “เรียกเก็บแล้ว”</dd>
+  </dl>
+
+  <h3>รายละเอียด — ฝั่งซ้าย: เลือกรายการ</h3>
+  <ol class="menu">
+    <li><b>รายการที่ยังเรียกเก็บไม่ครบ</b>
+      <p>ระบบแสดงรายการค่าใช้จ่ายของสิทธินั้นที่ยอดเบิกได้ยังมากกว่ายอดที่เรียกเก็บไปแล้ว จัดเป็นกลุ่มตามหมวดค่าใช้จ่าย ขยายดูรายตัวได้</p>
+      <p>OPD: ตาราง <b>ห้องตรวจที่มารับบริการ</b> (ห้องตรวจ · เวลา · แพทย์ · เครดิต · เรียกเก็บ) — คลิกห้องเพื่อกรองเฉพาะห้องนั้น คลิกซ้ำเพื่อยกเลิก ·
+         IPD: ช่องวันที่เริ่ม/สิ้นสุดที่หัวตาราง และแผง DRG (DRG · MDC · RW · AdjRW · LOS ฯลฯ)</p></li>
+    <li><b>ติ๊กรายการ</b>
+      <p>คอลัมน์: รายการ · จำนวนเงิน · <b>เครดิต · เบิกได้ · เบิกไม่ได้</b> (แก้ได้เฉพาะแถวที่เลือก ระบบปรับให้รวมกันเท่ายอดหลังหักส่วนลด) · ส่วนลด ·
+         แก้ที่ระดับกลุ่ม ระบบจะกระจายยอดลงรายการในกลุ่มให้ · ด้านล่างสรุป <b>ยอดรวม</b> และ <b>รายการที่เลือก</b></p>
+      <p class="small">ยอดที่แก้ในหน้านี้จะ<b>ไปแก้ยอดของรายการค่าใช้จ่ายจริง</b>ด้วย ไม่ใช่แค่ในใบเรียกเก็บ</p></li>
+  </ol>
+
+  <h3>รายละเอียด — ฝั่งขวา: รายละเอียดการเรียกเก็บ</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ช่อง</th><th>บังคับ</th><th>หมายเหตุ</th></tr></thead>
+    <tbody>
+      <tr><td><b>รอบส่งเบิก</b></td><td>✓</td><td>ระบบเลือกรอบล่าสุดที่เปิดอยู่ของสิทธินั้นให้ (ครอบคลุมวันนี้และยังไม่เต็มวงเงิน · OPD/IPD ตรงกันก่อน แล้วจึงรอบ “ทั้งหมด”) ·
+          ไม่มีรอบ และสิทธิไม่ได้ตั้ง Auto Invoice → <b>บันทึกไม่ได้</b> ต้องไปสร้างรอบก่อน · เลือกรอบแล้ว Project Code ถูกเขียนทับด้วยของรอบ</td></tr>
+      <tr><td><b>เลขขออนุมัติ EDC</b></td><td>✓</td><td>OPD มีตัวเลือก EDC Type และปุ่ม <b>ขอเลขอนุมัติ EDC</b> ส่งยอดไปเครื่อง EDC — อนุมัติแล้วเติมเลขและ<b>บันทึกให้อัตโนมัติ</b> ·
+          ไม่อนุมัติ → <i>“ไม่สามารถขอเลขอนุมัติได้ กรุณาลองอีกครั้ง”</i> · <b>IPD ไม่มีปุ่มนี้ ต้องพิมพ์เลขเอง</b></td></tr>
+      <tr><td>กรณีการเรียกเก็บ</td><td></td><td>A อุบัติเหตุ · E ฉุกเฉิน · ไม่เป็น A/E · I OP Refer ในจังหวัด · O OP Refer ข้ามจังหวัด · C ย้ายหน่วยบริการข้ามจังหวัด · N Normal · S ODS — ค่าเริ่มต้นตามรอบ</td></tr>
+      <tr><td>หมายเลขบัตร · โรงพยาบาลหลัก/รอง</td><td></td><td>เติมจากสิทธิหลักของผู้ป่วยให้</td></tr>
+      <tr><td>ต้นสังกัด (ข้าราชการ)</td><td></td><td>เลขที่/วันที่หนังสือต้นสังกัด · หน่วยงานต้นสังกัด · บัตรประชาชน/ชื่อ/ตำแหน่งเจ้าของสิทธิ · ความสัมพันธ์</td></tr>
+      <tr><td>อุบัติเหตุ/ฉุกเฉิน</td><td></td><td>AE Type (V พรบ.รถ · O กองทุนทดแทน · B ทั้งสอง) · EM Type (1 รักษาด่วน · 2 ผ่าตัดด่วน · 3 โรคที่กำหนด) · วันที่แจ้ง · ชื่อ/ทะเบียนรถคู่กรณี</td></tr>
+      <tr><td>Refer</td><td></td><td>เลขที่ Refer · รพ.ที่ Refer · Refer out</td></tr>
+      <tr><td>อื่น ๆ</td><td></td><td>เลขขออนุมัติ IPD · Project Code · OP Type · ครรภ์ที่ · อายุครรภ์ · LMP · ค่า BI · หมายเหตุ</td></tr>
+      <tr><td>ผ่อนชำระ</td><td></td><td>ติ๊กแล้วกรอกจำนวนงวด + วันเริ่ม — ระบบคำนวณยอดต่องวดและวันสิ้นสุดให้</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>กดบันทึก</h3>
+  <ol class="steps">
+    <li>ไม่มีรอบ / ไม่มีเลข EDC / ไม่เลือกรายการ / มียอดติดลบ → <i>“กรุณากรอกข้อมูลให้ครบถ้วน”</i></li>
+    <li>มีรายการที่เบิกไม่ได้ &gt; 0 → แจ้ง <i>“ผู้ป่วยมียอดค่าใช้จ่ายเบิกไม่ได้”</i> (แจ้งเฉย ๆ ไม่หยุด)</li>
+    <li>ยืนยันรหัสผ่าน</li>
+    <li>สำเร็จ → หัวจอแสดง <b>Invoice No</b> และพิมพ์เอกสารของใบนี้ได้</li>
+  </ol>
+
+  <div class="note note--warn">
+    <b class="note__label">ระบบไม่กันการออกใบซ้ำ — ตรวจเองก่อนกดซ้ำ</b>
+    <p>หลังบันทึก OPD ระบบโหลดรายการใหม่ (รายการที่เรียกเก็บครบแล้วจะหายไป) แต่ <b>IPD ไม่โหลดใหม่และปุ่มบันทึกยังกดได้</b> —
+       กดอีกครั้งจะได้ใบเรียกเก็บใบที่สองของรายการเดิม · รายการที่ยอดเบิกได้เป็น 0 จะโผล่ในรายการทุกครั้ง ·
+       ทางที่ปลอดภัย: หลังบันทึก IPD ให้ออกจากหน้าแล้วเข้าใหม่จากปุ่มเรียกเก็บ</p>
+  </div>
+  <div class="note">
+    <b class="note__label">ช่องที่ระบบไม่ใช้</b>
+    <p><b>วันที่</b> บนฟอร์ม — วันที่ใบเรียกเก็บคือ<b>วันเวลาที่กดบันทึก</b>เสมอ ·
+       <b>สถานะแจ้งกลับ A/E</b> — ใบใหม่เป็นสถานะ 1 เสมอ ·
+       <b>เหตุผลการ Refer</b> — ไม่ถูกบันทึก ·
+       ถ้ารอบที่เลือกถูกปิด/หมดอายุ/เต็มวงเงินระหว่างที่เปิดหน้าอยู่ ระบบจะ<b>สร้างรอบใหม่ให้เงียบ ๆ</b> แล้วใส่ใบไว้ในรอบนั้น</p>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d6">6 · Hybrid Invoice — ออกใบเรียกเก็บเป็นชุด</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> ผู้ป่วยนอก/ผู้ป่วยใน › Hybrid Invoice</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/opd/hybrid-invoice</code> · <code>/ipd/hybrid-invoice</code></span>
+    <span class="role"><b>ขั้น:</b> 1 ตั้งลูกหนี้ · 3 จัดรอบ</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ออกใบเรียกเก็บให้<b>หลายผู้ป่วยพร้อมกัน</b>ตามกลุ่มสิทธิ/สิทธิและช่วงวันที่ — 1 ใบต่อ 1 สิทธิของ Visit/Admit
+        แล้วนำใบที่ยังไม่มีรอบเข้ารอบส่งเบิก</dd>
+    <dt>ทำเมื่อไร</dt><dd>สิทธิที่ไม่ได้ตั้ง Auto Invoice แต่ต้องการออกใบจำนวนมาก · หรือเก็บตกใบที่ยังไม่อยู่ในรอบ</dd>
+    <dt>ต้องมีก่อน</dt><dd>ค่าใช้จ่ายและสิทธิถูกต้องแล้ว (หน้านี้<b>ไม่มีฟอร์มหัวใบ ไม่มีเลข EDC และเลือกรายการทีละตัวไม่ได้</b>)</dd>
+    <dt>ได้อะไร</dt><dd>ใบเรียกเก็บสถานะ 1 ที่<b>ยังไม่มีรอบ</b> → นำเข้ารอบในแท็บที่สอง</dd>
+  </dl>
+
+  <div class="note">
+    <b class="note__label">ชื่อเมนูชวนเข้าใจผิด</b>
+    <p>หน้านี้ไม่ได้ “แบ่งการรักษาครั้งเดียวให้หลายผู้จ่าย” อย่างที่คู่มือฉบับก่อนเขียน — แต่ละใบที่สร้างคือ 1 สิทธิ ·
+       ถ้า Visit เดียวมีหลายสิทธิ (เช่น สิทธิหลัก + ประกัน) ก็จะได้ใบแยกตามสิทธิอยู่แล้ว ไม่ว่าจะออกจากหน้าไหน</p>
+  </div>
+
+  <h3>แท็บ สร้าง Invoice</h3>
+  <ol class="menu">
+    <li><b>ค้นหา</b> — <b>กลุ่มสิทธิการรักษา*</b> (ไม่เลือก → <i>“โปรดเลือกกลุ่มสิทธิการรักษา”</i>) · สิทธิการรักษา · วันที่เริ่มต้น · วันที่สิ้นสุด
+      <p>ระบบแสดงสิทธิของ Visit (ตามวันรับบริการ) หรือ Admit (ตามวัน Admit) ที่เครดิตยังมากกว่ายอดที่เรียกเก็บแล้ว ·
+         คอลัมน์: Service No/Admit ID · วันที่ · HN · ชื่อ · สิทธิ · เลขที่เครดิต · จำนวนเงิน · เครดิต · เบิกได้ · เบิกไม่ได้ · ส่วนลด · เรียกเก็บแล้ว ·
+         คลิกแถวดูรายละเอียดค่าใช้จ่าย</p></li>
+    <li><b>สร้าง Invoice</b> (เฉพาะแถวที่ติ๊ก) — ยืนยัน <i>“ยืนยันสร้าง Invoice”</i></li>
+    <li><b>สร้าง Invoice ทั้งหมด</b> — ทุกแถวตามเงื่อนไขค้นหา · กดได้เมื่อค้นด้วยกลุ่มสิทธิ + วันที่ครบ มีผลลัพธ์ และยังไม่เปลี่ยนเงื่อนไขหลังค้น</li>
+  </ol>
+
+  <h3>แท็บ นำเข้ารอบส่งเบิก</h3>
+  <ol class="menu">
+    <li><b>ค้นหา</b> — สิทธิการรักษา* · วันที่ · แสดงใบเรียกเก็บของสิทธินั้นที่<b>ยังไม่ถูกยกเลิกและยังไม่มีรอบ</b></li>
+    <li><b>นำเข้ารอบส่งเบิก</b> (ที่เลือก) หรือ <b>นำทั้งหมดเข้ารอบ</b> → เลือกรอบในหน้าต่าง → ยืนยัน</li>
+    <li>ยังไม่มีรอบ → ปุ่ม <b>สร้างรอบส่งเบิก</b> เปิดหน้าต่างเดียวกับ <a href="#d12">หัวข้อ 12</a></li>
+  </ol>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d7">7 · ตรวจสอบ/แก้ไขการเรียกเก็บ</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> งานเรียกเก็บ › ตรวจสอบ/แก้ไขการเรียกเก็บ</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/cancel-invoice</code></span>
+    <span class="role"><b>สิทธิเมนู:</b> <code>REIMBURSEMENT_REIMBURSE_PAYMENT</code></span>
+    <span class="role"><b>ขั้น:</b> 1 – 5</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ค้นใบเรียกเก็บทั้ง OPD และ IPD · แก้ข้อมูลหัวใบ · เพิ่ม/ลดรายการในใบ · ยกเลิกใบ</dd>
+    <dt>ทำเมื่อไร</dt><dd>ออกใบผิด · REP กลับมาว่าข้อมูลหัวใบผิด · ต้องการออกใบใหม่แทนใบเดิม</dd>
+    <dt>ต้องมีก่อน</dt><dd>ใบนั้น<b>ยังไม่ถูกยกเลิก</b>และ<b>รอบยังไม่ปิด</b> (ปุ่มแก้ไข/ยกเลิกจะถูกปิดถ้ารอบปิดแล้ว)</dd>
+    <dt>ได้อะไร</dt><dd>ใบที่แก้แล้ว หรือใบที่ยกเลิก — รายการในใบที่ยกเลิกจะกลับมาให้ออกใบเรียกเก็บใหม่ได้</dd>
+  </dl>
+
+  <h3>รายละเอียด</h3>
+  <ol class="menu">
+    <li><b>ค้นหา (ในหน้า ไม่ใช้ช่องค้นหาด้านบน)</b>
+      <p>เลขที่ Inv. no · วันที่เรียกเก็บ · ประเภท HN / AN / Service ID + ช่องค้นหา ·
+         HN/AN ต้องตรงผู้ป่วย<b>คนเดียว</b> ถ้าเจอ 0 หรือหลายคน ตารางจะค้างผลเดิมไว้ · ไม่กรอกอะไร = ใบล่าสุดของทุกผู้ป่วย</p>
+      <p>คอลัมน์: รอบส่งเบิก · Service Id · วันที่เข้ารับการรักษา · Invoice No. · Bill Type · เลขที่เครดิต · Auto · OPD/IPD · จำนวนเงิน · Action</p></li>
+    <li><b>ยกเลิกใบ</b> (ปุ่มในคอลัมน์ Action)
+      <p>ระบุเหตุผล* → ยืนยันรหัสผ่าน · ระบบตั้งใบและรายการในใบเป็นยกเลิก แล้วล้างยอด “เรียกเก็บแล้ว” ของรายการค่าใช้จ่าย</p>
+      <p>ไม่ได้: ใบยกเลิกไปแล้ว (<i>“Bill เลขที่ …, ถูกยกเลิกแล้ว”</i>) · รอบปิดแล้ว (ข้อความขึ้นว่า <i>“รอบการส่งเบิก ถูกยกเลิกแล้ว”</i> — ความหมายจริงคือ<b>รอบถูกปิด</b>)</p></li>
+    <li><b>แก้ไขใบ</b> (ไอคอนในคอลัมน์ Edit)
+      <p>แผงรายละเอียดเข้าโหมดแก้ไข: <b>คงที่เลือก</b> · <b>ลบที่เลือก</b> · <b>แทรกรายการ</b> (เลือกจากรายการที่ยังไม่เรียกเก็บ) ·
+         ยอดเรียกเก็บต่อรายการต้องไม่เกินเครดิต</p>
+      <p>แก้หัวใบ (เลข EDC · เลขหนังสือ · เจ้าของสิทธิ · AE · Project Code · หมายเหตุ ฯลฯ) แล้วกด <b>บันทึก</b> ด้านบน → ยืนยันรหัสผ่าน</p></li>
+  </ol>
+
+  <div class="note note--danger">
+    <b class="note__label">ระวังก่อนยกเลิกหรือแก้ใบที่ไปไกลแล้ว</b>
+    <p>ระบบ<b>ไม่ตรวจสถานะ</b>ก่อนยกเลิก — ใบที่ได้ผล REP แล้ว หรือรับชำระแล้ว ก็ยกเลิกได้ถ้ารอบยังไม่ปิด ·
+       ช่อง <b>สถานะแจ้งกลับ A/E</b> ในหน้าแก้ไขเขียนทับสถานะใบได้ทุกค่า ·
+       การบันทึกหัวใบ <b>ล้างรหัสหน่วยงานต้นสังกัด</b> ทิ้ง และช่อง Refer out / OP Type / ครรภ์ / LMP / ค่า BI ในหน้านี้ผูกผิดช่อง ไม่ถูกบันทึก ·
+       แก้ได้เฉพาะเมื่อจำเป็น และตรวจผลหลังบันทึกทุกครั้ง</p>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d8">8 · โอนค่าใช้จ่าย</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> งานเรียกเก็บ › โอนค่าใช้จ่าย</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/transfer/…</code></span>
+    <span class="role"><b>ขั้น:</b> 1 ตั้งลูกหนี้</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ย้ายรายการค่าใช้จ่ายไปอยู่สิทธิอื่น หรือย้ายระหว่างผู้ป่วยนอกกับผู้ป่วยใน เพื่อให้ยอดเครดิตไปอยู่ถูกผู้จ่าย</dd>
+    <dt>ทำเมื่อไร</dt><dd>ก่อนออกใบเรียกเก็บ เมื่อพบว่าค่าใช้จ่ายลงผิดสิทธิ</dd>
+    <dt>ต้องมีก่อน</dt><dd>บัญชีปลายทาง<b>ยังไม่ปิด</b> — ถ้าปิดแล้วจะขึ้น <i>“ไม่สามารถโอนค่าใช้จ่ายได้เนื่องจากบัญชีที่จะรับโอนถูกปิดแล้ว”</i></dd>
+    <dt>ได้อะไร</dt><dd>ยอดย้ายไปอยู่สิทธิปลายทาง พร้อมออกใบเรียกเก็บของสิทธินั้น</dd>
+  </dl>
+
+  <p>เมนูย่อย 6 เมนู: <b>ผู้ป่วยนอกเป็นผู้ป่วยใน</b> · ยกเลิกการโอนผู้ป่วยนอกเป็นผู้ป่วยใน ·
+     <b>ผู้ป่วยนอกระหว่างสิทธิ</b> · ยกเลิกการโอนผู้ป่วยนอกระหว่างสิทธิ ·
+     <b>ผู้ป่วยในระหว่างสิทธิ</b> · ยกเลิกการโอนผู้ป่วยในระหว่างสิทธิ ·
+     ขั้นตอนการโอนเหมือนกับเมนูโอนค่าใช้จ่ายของงานการเงิน — ดู <a href="02-finance.html">การเงินผู้ป่วยนอก / ใน</a></p>
+  <p class="small">ระบบยังโอนให้เองอัตโนมัติทุกวัน 20:00 สำหรับ ICD ที่ตั้งไว้ใน “กำหนด ICD ตามสิทธิ” — ดู <a href="#d23">หัวข้อ 23</a></p>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d9">9 · ปิดสิทธิ สปสช. และ ตรวจสอบรายการที่ยังไม่ปิดสิทธิ</h2>
+
+  <div class="roles">
+    <span class="role"><b>ปุ่ม:</b> สรุปค่ารักษาพยาบาล › ปิดสิทธิ</span>
+    <span class="role"><b>เมนูตรวจ:</b> การส่งเบิก › ตรวจสอบรายการที่ยังไม่ปิดสิทธิ (<code>/verify-claim/close-right</code>)</span>
+    <span class="role"><b>ขั้น:</b> 2</span>
+    <span class="role"><b>ความถี่:</b> ทุกวัน</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ส่งยอดรวมและยอดเครดิตของ Visit ไปยืนยันกับ สปสช. (ปิดสิทธิออนไลน์) แล้วเก็บเลข Seq และ Authen Code ที่ได้กลับมา</dd>
+    <dt>ทำเมื่อไร</dt><dd>หลังยอดค่ารักษาของ Visit นิ่งแล้ว — ปิดแล้วถ้ายอดเปลี่ยนต้องประสานแก้กับ สปสช.</dd>
+    <dt>ต้องมีก่อน</dt><dd>ยอดเครดิต &gt; 0 · <b>ผู้ใช้ที่กดต้องมีเลขบัตรประชาชนในข้อมูลผู้ใช้</b> · Token สปสช. ใช้ได้</dd>
+    <dt>ได้อะไร</dt><dd>ปุ่มเปลี่ยนเป็น <b>ปิดสิทธิแล้ว</b> · รายการหายจากหน้า “ยังไม่ปิดสิทธิ” · ดูผลรายตัวได้ที่แท็บ “ตรวจสอบสถานะการปิดสิทธิ” (<a href="#d14">หัวข้อ 14</a>)</dd>
+  </dl>
+
+  <h3>รายละเอียด — ปุ่มปิดสิทธิ</h3>
+  <ol class="steps">
+    <li>เปิด <span class="menuname">สรุปค่ารักษาพยาบาล</span> ของผู้ป่วย เลือก Service และสิทธิ</li>
+    <li>กด <b>ปิดสิทธิ</b></li>
+    <li>ผู้ใช้ไม่มีเลขบัตร → <i>“บัญชีของคุณไม่มีข้อมูลเลขบัตรประชาชน”</i> · ปิดไปแล้ว → <i>“รายการนี้ถูกปิดสิทธิแล้ว”</i> ·
+        สปสช. ตอบกลับว่าผิดพลาด → หน้าต่าง <i>“ไม่สามารถทำรายการได้”</i> พร้อมข้อความจาก สปสช.</li>
+  </ol>
+
+  <div class="note note--warn">
+    <b class="note__label">ข้อความ “ทำรายการเรียบร้อย” ขึ้นทุกครั้ง แม้ไม่สำเร็จ</b>
+    <p>หลังกดปิดสิทธิ ระบบแสดง <i>“ทำรายการเรียบร้อย”</i> เสมอ — ถ้ามีหน้าต่างข้อผิดพลาดขึ้นพร้อมกัน แปลว่า<b>ไม่สำเร็จ</b> ·
+       ให้ดูว่าปุ่มเปลี่ยนเป็น “ปิดสิทธิแล้ว” หรือไม่ หรือดูที่แท็บตรวจสอบสถานะการปิดสิทธิ</p>
+  </div>
+
+  <h3>รายละเอียด — หน้าตรวจสอบรายการที่ยังไม่ปิดสิทธิ</h3>
+  <p>เป็น<b>หน้าดูอย่างเดียว ไม่มีปุ่มปิดสิทธิ</b> — ใช้หาว่าต้องไปกดปิดเคสไหน</p>
+  <ul>
+    <li><b>ค้นหา:</b> วันที่เข้ารับบริการ (วันเดียว ค่าเริ่มต้นวันนี้) · ผู้ป่วยนอก/ผู้ป่วยใน · สิทธิการรักษา · HN</li>
+    <li><b>คอลัมน์:</b> วันที่เข้ารับบริการ · เลขที่เข้ารับบริการ · Invoice No. · สิทธิ · เลขบัตรประชาชน · HN · ชื่อ · OPD/IPD · เครดิต · เบิกได้ · เบิกไม่ได้ · ส่วนลด</li>
+    <li><b>เงื่อนไขที่แสดง:</b> ใบในวันนั้นที่ยังไม่มีผลปิดสิทธิสำเร็จ <b>และ</b>ยังไม่มีผลจองเคลมสำเร็จ —
+        เคสที่จองเคลม FDH สำเร็จแล้วจะไม่ขึ้นในหน้านี้แม้ยังไม่ได้ปิดสิทธิ · ใบที่ถูกยกเลิกก็ยังขึ้น</li>
+  </ul>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d10">10 · ตรวจสอบการขอ Authen Code</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> งานเรียกเก็บ › ตรวจสอบการขอ Authen Code</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/authen-code-lists</code></span>
+    <span class="role"><b>ขั้น:</b> 2</span>
+    <span class="role"><b>ความถี่:</b> ทุกวัน</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ดูว่าการมารับบริการ (รายห้องตรวจ) ของสิทธิกลุ่ม <b>UCS</b> มี Authen Code และประเภทการมารับบริการครบหรือยัง แล้วเติมให้ครบ</dd>
+    <dt>ทำเมื่อไร</dt><dd>ทุกวัน ก่อนจัดรอบ · Authen Code ถูกใส่ลงไฟล์ส่งเบิก — ขาดก็ยังส่งได้แต่จะเป็นช่องว่าง เสี่ยงถูกปฏิเสธ</dd>
+    <dt>ต้องมีก่อน</dt><dd>ได้ Authen Code จากการยืนยันตัวตนผู้ป่วยกับ สปสช.</dd>
+    <dt>ได้อะไร</dt><dd>Authen Code และประเภทการมารับบริการครบในทุก Visit ของ UCS · ไฟล์ Excel สำหรับติดตาม</dd>
+  </dl>
+
+  <h3>รายละเอียด</h3>
+  <ol class="menu">
+    <li><b>ค้นหา</b>
+      <p>กลุ่มสิทธิ (ล็อกเป็น UCS) · วันที่เริ่มต้น/สิ้นสุด (ค่าเริ่มต้นวันนี้) · Authen Code: ทั้งหมด / <b>ขอแล้ว</b> / <b>ยังไม่ขอ</b> · ห้องตรวจ · เจ้าหน้าที่ (ผู้บันทึก/แก้ไขล่าสุด) · HN</p>
+      <p>คอลัมน์: วันที่เข้ารับบริการ · เลขบัตรประชาชน · HN · ชื่อ · สิทธิ · ห้องตรวจ · Authen Code · ประเภทการมารับบริการ · เจ้าหน้าที่</p></li>
+    <li><b>แก้ไข</b> (ไอคอนท้ายแถว — กดได้เมื่อยังขาดอย่างใดอย่างหนึ่ง)
+      <p>หน้าต่าง “การแก้ไข Authen Code”: <b>Authen Code*</b> · <b>ประเภทการมารับบริการ*</b> · หมายเหตุ</p>
+      <p class="small">หมายเหตุที่กรอกจะ<b>ไปทับหมายเหตุของสิทธิ</b>ใน Visit นั้น · เมื่อกรอกครบทั้งสองช่องแล้ว ปุ่มแก้ไขจะปิด (ข้อความเตือน “บันทึกแล้วจะไม่สามารถแก้ไขได้”)</p></li>
+    <li><b>ออกรายงาน</b> — ได้ไฟล์ Excel “ตรวจสอบ Authen Code วันที่ … – …” คอลัมน์เดียวกับตาราง</li>
+  </ol>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d11">11 · การปิดบัญชีผู้ป่วยนอก / ผู้ป่วยใน</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> การปิดบัญชีผู้ป่วยนอก · การปิดบัญชีผู้ป่วยใน</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/close-account-opd</code> · <code>/close-account-ipd</code></span>
+    <span class="role"><b>ขั้น:</b> 2</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ล็อก Visit (OPD) หรือ Admit (IPD) เป็นชุดตามช่วงวันที่ ไม่ให้เพิ่มหรือโอนค่าใช้จ่ายเข้ามาอีก — ยอดลูกหนี้จะได้ไม่เปลี่ยนหลังส่งเบิก</dd>
+    <dt>ทำเมื่อไร</dt><dd>ก่อนส่งเบิกของงวดนั้น · ยกเลิกปิดได้เมื่อต้องแก้ค่าใช้จ่าย</dd>
+    <dt>ต้องมีก่อน</dt><dd>ไม่มีเงื่อนไขอื่น (<b>ไม่ต้องปิดสิทธิก่อน</b>) · IPD ต้อง<b>จำหน่ายแล้ว</b> — Admit ที่ยังไม่จำหน่ายจะไม่ขึ้นในหน้านี้</dd>
+    <dt>ได้อะไร</dt><dd>Visit/Admit ที่ปิดแล้ว — เพิ่มค่าใช้จ่ายจะขึ้น <i>“ไม่สามารถเพิ่มค่าใช้จ่ายได้เนื่องจาก ปิดบัญชีไปเเล้ว”</i> · โอนเข้าไม่ได้ ·
+        การ์ด “ผู้ป่วยในที่ปิดบัญชี” ใน Dashboard นับรายการนี้</dd>
+  </dl>
+
+  <h3>รายละเอียด</h3>
+  <p>หน้าจอมี 2 แท็บหน้าตาเหมือนกัน: <b>ปิดบัญชี</b> (แสดงรายการที่ยังไม่ปิด) และ <b>ยกเลิกปิดบัญชี</b> (แสดงรายการที่ปิดแล้ว)</p>
+  <ol class="menu">
+    <li><b>ค้นหา</b> — <b>วันที่เริ่มต้น*</b> · <b>วันที่สิ้นสุด*</b> (ไม่ครบ → <i>“กรุณากรอกข้อมูลให้ครบถ้วน”</i>) · สิทธิการรักษา
+      <p>OPD ค้นตาม<b>วันที่ให้บริการ</b> · IPD ค้นตาม<b>วันที่จำหน่าย</b></p>
+      <p>คอลัมน์: ☐ · รหัสสิทธิ · HN · (AN) · ชื่อ - นามสกุล · วันที่ให้บริการ/วันที่จำหน่าย · รหัสห้องตรวจ · ชื่อห้องตรวจ · จำนวนเงิน (เครดิต)</p></li>
+    <li><b>ปิดบัญชี</b> (ที่ติ๊ก) หรือ <b>ปิดบัญชีทั้งหมด</b>
+      <p>ไม่ได้ติ๊ก → <i>“โปรดเลือกอย่างน้อย 1 รายการ ก่อนกดปิดบัญชี”</i> · ยืนยัน → <i>“ทำรายการสำเร็จ”</i> ·
+         ปุ่มกดได้หลังจากกดค้นหาด้วยเงื่อนไขปัจจุบันแล้วเท่านั้น</p></li>
+    <li><b>ยกเลิกปิดบัญชี</b> / <b>ยกเลิกทั้งหมด</b> ในแท็บที่สอง — ทำได้ทุกเมื่อ ระบบไม่ตรวจว่าใบอยู่ในรอบหรือส่งเบิกไปแล้ว</li>
+  </ol>
+
+  <div class="note note--warn">
+    <b class="note__label">“ทั้งหมด” = ทุกหน้า ไม่ใช่เฉพาะหน้าที่เห็น</b>
+    <p><b>ปิดบัญชีทั้งหมด</b> และ <b>ยกเลิกทั้งหมด</b> ทำกับทุกรายการที่ตรงเงื่อนไขค้นหา แม้จะอยู่หน้าถัดไปของตาราง ·
+       ตรวจช่วงวันที่และสิทธิให้แน่ใจก่อนกด</p>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d12">12 · ตรวจสอบรอบส่งเบิก — สร้างรอบ ดึงใบ ส่งออก ปิดรอบ</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> งานเรียกเก็บ › ตรวจสอบรอบส่งเบิก</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/bill-rounds</code></span>
+    <span class="role"><b>สิทธิเมนู:</b> <code>REIMBURSEMENT_REIMBURSE_ROUND</code></span>
+    <span class="role"><b>ขั้น:</b> 3 จัดรอบ · 4 ส่งเบิก</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>หน้าหลักของงานรอบ — สร้าง/แก้รอบ · ดึงใบเรียกเก็บเข้ารอบ · ยกเลิกใบในรอบ · ส่งออกไฟล์ตามรูปแบบผู้จ่าย · ส่ง 16 แฟ้มไป FDH · ปิดรอบ</dd>
+    <dt>ทำเมื่อไร</dt><dd>สร้างรอบก่อนเริ่มงวด (หน้าออกใบเรียกเก็บต้องใช้) · ดึงใบและส่งออกเมื่อถึงกำหนดส่ง</dd>
+    <dt>ต้องมีก่อน</dt><dd>ใบเรียกเก็บของสิทธินั้น · (แนะนำ) ปิดบัญชี ปิดสิทธิ และ Run Pre-Audit แล้ว</dd>
+    <dt>ได้อะไร</dt><dd>ไฟล์ส่งเบิก (.zip) หรือการส่ง FDH สำเร็จ · รอบที่ปิดแล้ว · ใบในรอบเป็นสถานะ 1</dd>
+  </dl>
+
+  <h3>หน้าจอ</h3>
+  <p>ซ้าย: <b>รายการรอบ</b> — ค้นด้วยเลขที่รอบ และสิทธิ · คอลัมน์: ชื่อรอบส่งเบิก · สิทธิ · ปิดรอบ? · Auto? (รอบที่ระบบสร้าง) · OpdIpd · จำนวนเงิน · ชำระแล้ว ·
+     ขวา: <b>รายการข้อมูลเรียกเก็บ</b> ของรอบที่เลือก — Invoice No. · AN · HN · ชื่อ · OPD/IPD · ยอด · ปุ่มยกเลิก</p>
+
+  <h3>12.1 สร้าง / แก้ไขรอบ</h3>
+  <ol class="steps">
+    <li>กด <b>+</b> (หรือไอคอนแก้ไขบนรอบ) → หน้าต่าง “เพิ่มรอบการส่งเบิก”</li>
+    <li>กรอก <b>สิทธิ*</b> · กรณีเรียกเก็บ (A / E / ไม่เป็น A/E / I / O / C / N / S) · ผู้ป่วยนอก/ผู้ป่วยใน (เว้นว่าง = ทั้งหมด) · วันเริ่มต้น · วันสิ้นสุด · Project Code · หมายเหตุ</li>
+    <li>บันทึก → ยืนยันรหัสผ่าน → <i>“รอบส่งเบิก เลขที่ …”</i></li>
+  </ol>
+  <p>สร้างไม่ได้ถ้ามีรอบเรียกเก็บของ<b>สิทธิและ OPD/IPD เดียวกัน</b>ที่ยังเปิดอยู่ → <i>“รอบการส่งเบิก เรียกเก็บ ถูกใช้งานอยู่”</i> — ต้องปิดรอบเดิมก่อน</p>
+  <p class="small">วันเริ่มต้น/สิ้นสุดของรอบใช้เลือกรอบตอนออกใบเรียกเก็บ (รอบที่หมดอายุจะไม่ถูกเลือก) — <b>ไม่ได้ใช้</b>ตอนดึงใบเข้ารอบ ·
+     กรณีเรียกเก็บของรอบเป็นค่าเริ่มต้นให้ใบเรียกเก็บ และกำหนดวิธีเติมข้อมูลบางช่องในไฟล์ (เช่น ODS) — ไม่ได้ใช้คัดใบ</p>
+
+  <h3>12.2 ดึง Invoice เข้ารอบ</h3>
+  <ol class="steps">
+    <li>เลือกรอบ → กด <b>ดึง Invoice</b></li>
+    <li>กรอก <b>วันที่เริ่มต้น*</b> และ <b>วันที่สิ้นสุด*</b> (เทียบกับ<b>วันที่ออกใบเรียกเก็บ</b>)</li>
+    <li>กด <b>ตรวจสอบ</b> → ระบบแจ้ง <i>“ผลการค้นหา: N Invoices”</i></li>
+    <li>กด <b>บันทึก</b> (กดได้เมื่อตรวจสอบแล้วพบ &gt; 0) → ใบทั้งหมดถูกย้ายเข้ารอบ</li>
+  </ol>
+
+  <div class="note note--tip">
+    <b class="note__label">ใบที่ถูกดึง ต้องครบทุกข้อ</b>
+    <p>① ยังไม่อยู่ในรอบใด · ② เป็นใบประเภทเรียกเก็บ · ③ สิทธิตรงกับรอบ · ④ OPD/IPD ตรงกับรอบ (ถ้ารอบระบุไว้) ·
+       ⑤ วันที่ออกใบอยู่ในช่วงที่กรอก · ⑥ ไม่ถูกยกเลิก<br>
+       <b>ไม่ได้ดู</b> ปิดสิทธิ · ปิดบัญชี · Authen Code · ผลจองเคลม · กรณีเรียกเก็บ ·
+       ใบที่ “หายไปจากรอบ” จึงมักเป็นใบที่<b>อยู่ในรอบอื่นอยู่แล้ว</b> (เช่นรอบอัตโนมัติ หรือรอบที่เลือกตอนออกใบ) หรือสิทธิไม่ตรง</p>
+  </div>
+  <p class="small">ปุ่มบันทึกในหน้าต่างดึง Invoice จะค้างหลังบันทึกไม่สำเร็จ — ปิดหน้าต่างแล้วเปิดใหม่ · ดึงเข้ารอบที่ปิดแล้วก็ได้ (ระบบไม่กัน) ระวังเลือกรอบให้ถูก</p>
+
+  <h3>12.3 ส่งออกไฟล์</h3>
+  <p>เมนู <b>ส่งออก</b>: CSOPBILL · SSOPBILL · e-Claim · <b>e-Claim New</b> · e-Claim Ods · CIPN · AIPN · SIP09 · OPBKK · ติ๊ก <b>Format HN</b> ถ้าผู้จ่ายต้องการรูปแบบ HN เฉพาะ ·
+     ได้ไฟล์ <code>&lt;ประเภท&gt;_&lt;เลขรอบ&gt;.zip</code></p>
+  <p>ในไฟล์ e-Claim New / Ods / FDH ระบบ<b>ตัดใบออกอีกชั้น</b>: ใบที่ถูกยกเลิก และใบที่<b>ยอดเรียกเก็บ ≤ 0</b> จะไม่อยู่ในไฟล์แม้จะอยู่ในรอบ</p>
+
+  <h3>12.4 ส่ง FDH (เฉพาะรอบสิทธิกลุ่ม UCS)</h3>
+  <ol class="steps">
+    <li>เลือกรอบ → กด <b>ส่ง FDH</b> → ยืนยัน <i>“คุณต้องการที่จะส่ง 16 ไฟล์ไปยัง FDH หรือไม่ หากส่งแล้วจะไม่สามารถยกเลิกการส่งได้”</i></li>
+    <li>ระบบสร้างไฟล์ e-Claim New แล้วส่งทุกแฟ้ม (ยกเว้น LABFU) ไป FDH</li>
+    <li>สำเร็จ → <b>รอบถูกปิดอัตโนมัติ</b> และใบในรอบเป็นสถานะ <b>1</b> · ไม่สำเร็จ → <i>“ไม่สามารถส่งไฟล์ FDH ได้”</i></li>
+  </ol>
+
+  <h3>12.5 ปิดรอบ / เปิดรอบ</h3>
+  <p>เปิดหน้าต่างแก้ไขรอบ → เปิดสวิตช์ <b>Lock</b> → บันทึก = <b>ปิดรอบ</b> · ปิดสวิตช์ = เปิดรอบอีกครั้ง (ทำได้)</p>
+  <ul>
+    <li>รอบปิดแล้ว: ยกเลิก/แก้ไขใบในรอบไม่ได้ · บันทึกเลื่อนรอบด้วยไฟล์ไม่ได้ · รอบหายจากตัวเลือกในหน้าอื่น</li>
+    <li>ปิดแล้วจึงสร้างรอบใหม่ของสิทธิเดียวกันได้</li>
+  </ul>
+
+  <h3>12.6 ยกเลิกใบในรอบ</h3>
+  <p>ปุ่ม <b>ยกเลิก</b> บนแถวใบเรียกเก็บด้านขวา → ระบุเหตุผล → ยืนยันรหัสผ่าน — ผลเหมือนการยกเลิกใน <a href="#d7">หัวข้อ 7</a> · กดไม่ได้เมื่อรอบปิด</p>
+
+  <p class="small">พิมพ์: คำขอเบิกค่าบริการส่งเสริมสุขภาพและป้องกันโรค (ใช้เลขรอบที่<b>พิมพ์ในช่องค้นหา</b> ไม่ใช่รอบที่คลิกเลือก) ·
+     คอลัมน์ “ชำระแล้ว” ของรอบแสดง 0.00 เสมอ — ดูยอดรับชำระที่หน้ารอบรับชำระแทน</p>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d13">13 · ตรวจสอบรอบก่อนส่งเบิก (Pre-Audit)</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> งานเรียกเก็บ › ตรวจสอบรอบก่อนส่งเบิก</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/pre-audit-bill-rounds</code></span>
+    <span class="role"><b>สิทธิเมนู:</b> <code>REIMBURSEMENT_REIMBURSE_ROUND</code></span>
+    <span class="role"><b>ขั้น:</b> 3</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ให้ระบบตรวจใบเรียกเก็บในรอบตามกฎของสิทธินั้น ก่อนส่งจริง แล้วยืนยันว่ารอบผ่านการตรวจ</dd>
+    <dt>ทำเมื่อไร</dt><dd>หลังดึงใบเข้ารอบ ก่อนส่งออก/ส่ง FDH</dd>
+    <dt>ต้องมีก่อน</dt><dd>รอบที่มีใบเรียกเก็บอยู่แล้ว</dd>
+    <dt>ได้อะไร</dt><dd>สถานะรายใบ <b>ผ่านการตรวจสอบ / ไม่ผ่านการตรวจสอบ / รอตรวจสอบ</b> และรอบที่ Submit แล้ว — ผลนี้<b>ไม่ได้บล็อก</b>การส่งออก เป็นเครื่องมือช่วยตรวจ</dd>
+  </dl>
+
+  <h3>รายละเอียด</h3>
+  <ol class="menu">
+    <li><b>ค้นหารอบ</b> — ชื่อรอบส่งเบิก · สิทธิการรักษา · OpdIpd → เลือกรอบ เห็นรายการใบพร้อมสถานะตรวจ</li>
+    <li><b>Run Pre-Audit</b>
+      <p>สิทธิที่มีชุดกฎ: <b>OP Refer ข้ามจังหวัด</b> · <b>ฉุกเฉิน</b> · <b>โรคเรื้อรัง</b> · <b>มะเร็ง</b> — ระบบตรวจตามกฎแล้วตั้งผ่าน/ไม่ผ่านรายใบ ·
+         สิทธิอื่นที่ไม่มีกฎ — ทุกใบ “ผ่าน” ทันที</p></li>
+    <li><b>Submit</b>
+      <p>ยังมีใบที่ไม่มีผลตรวจ → <i>“กรุณา Run Pre-Audit ทั้งหมดก่อน”</i> ·
+         มีใบไม่ผ่าน → ถาม <i>“มี Invoice ไม่ผ่านการตรวจสอบ n รายการ จากทั้งหมด m รายการ”</i> ·
+         สำเร็จ → ถามว่าจะไปหน้าตรวจสอบรอบส่งเบิกหรือไม่</p></li>
+    <li>ส่งออกไฟล์ได้จากหน้านี้เหมือนหัวข้อ 12 (แต่<b>ไม่มีปุ่มส่ง FDH</b>)</li>
+  </ol>
+
+  <div class="note note--warn">
+    <b class="note__label">Submit ค้างที่ “กรุณา Run Pre-Audit ทั้งหมดก่อน”</b>
+    <p>เกิดได้ 2 กรณี: รอบมี<b>ใบที่ถูกยกเลิก</b> (Run ข้ามใบที่ยกเลิก แต่ Submit ยังนับ) ·
+       หรือสิทธิมีชุดกฎแต่บางใบไม่มีข้อมูลให้ตรวจ จึงไม่ได้ผล · ทางออก: ส่งออกจากหน้าตรวจสอบรอบส่งเบิกได้เลย ผล Pre-Audit ไม่ได้บังคับ</p>
+  </div>
+  <p class="small">ไอคอนแก้ไขบนรอบในหน้านี้เปิดหน้าต่าง “เพิ่มรอบใบเสร็จ” (ของรอบรับชำระ) ไม่ใช่หน้าต่างแก้รอบส่งเบิก — แก้รอบให้ทำที่หัวข้อ 12</p>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d14">14 · ตรวจสอบการส่งเบิก (จองเคลม · ปิดสิทธิ · ผล สปสช.)</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> การส่งเบิก › ตรวจสอบการส่งเบิก</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/verify-claim/booking-claim</code></span>
+    <span class="role"><b>ขั้น:</b> 2 · 4 · 5</span>
+    <span class="role"><b>ความถี่:</b> ทุกเช้า</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>หน้าติดตามรวม 5 แท็บ — ผลการจองเคลม FDH (และส่งซ้ำ/ยกเลิก) · ผลปิดสิทธิ · ผลตรวจจาก REP · ผลการโอนเงิน · สถานะเคลมล่าสุดที่ สปสช.</dd>
+    <dt>ทำเมื่อไร</dt><dd>ทุกเช้าดูแท็บจองเคลมที่ “ไม่สำเร็จ” · หลัง import REP / Statement ดูแท็บผล</dd>
+    <dt>ต้องมีก่อน</dt><dd>สิทธิที่ตั้ง Auto Booking Claim (สำหรับแท็บจองเคลม) · REP/Statement ที่นำเข้าแล้ว (แท็บผล)</dd>
+    <dt>ได้อะไร</dt><dd>รายการที่ต้องตามแก้ · ไฟล์ Excel ของแท็บผล</dd>
+  </dl>
+
+  <div class="note note--tip">
+    <b class="note__label">ตารางว่างจนกว่าจะเลือกเงื่อนไข</b>
+    <p>เปิดแท็บแล้วตารางยังว่างเป็นปกติ — ต้องเลือกเงื่อนไขอย่างน้อยหนึ่งช่องแล้วกด <b>ค้นหา</b> ·
+       ปุ่ม <b>ออกรายงาน</b> ใช้เงื่อนไขที่เปลี่ยนในแท็บนั้นเท่านั้น ถ้ายังไม่ได้แตะตัวกรองในแท็บนั้น กดแล้วจะไม่มีอะไรเกิดขึ้น</p>
+  </div>
+
+  <h3>แท็บ ตรวจสอบ/ส่งจองเคลมใหม่</h3>
+  <ul>
+    <li><b>ค้นหา:</b> สิทธิ · วันที่เริ่มต้น/สิ้นสุด (<b>วันที่สร้างรายการจองเคลม</b> ไม่ใช่วันรับบริการ) · สถานะ: สำเร็จ / ไม่สำเร็จ / รอส่ง-รอส่งซ้ำ / ยกเลิก · HN</li>
+    <li><b>คอลัมน์:</b> วันที่เข้ารับบริการ · เลขที่เข้ารับบริการ · HN · เลขบัตร · ชื่อ · สิทธิ · Invoice No. · ยอดจองเคลม · สถานะ · อธิบาย · วันที่ส่งจองเคลม</li>
+    <li><b>ส่งจองเคลมใหม่</b> — ติ๊กได้เฉพาะเมื่อค้นด้วยสถานะ <b>ไม่สำเร็จ</b> · ส่งซ้ำแม้รายการที่ระบบเลิกลองไปแล้ว</li>
+    <li><b>ยกเลิกจองเคลม</b> — ติ๊กได้เฉพาะเมื่อค้นด้วยสถานะ <b>สำเร็จ</b> · ต้องติ๊กทีละแถว (ช่องเลือกทั้งหมดใช้กับการยกเลิกไม่ได้)</li>
+  </ul>
+  <div class="note note--warn">
+    <b class="note__label">“ทำรายการสำเร็จ” ไม่ได้แปลว่าส่งผ่าน</b>
+    <p>ปุ่มส่งจองเคลมใหม่แจ้งสำเร็จเสมอ — ให้ดูคอลัมน์ <b>สถานะ</b> และ <b>อธิบาย</b> หลังรีเฟรช ·
+       รายการ “รอส่ง/รอส่งซ้ำ” ระบบจะลองเองทุก 6 ชั่วโมงไม่เกิน 7 วัน เลยจากนั้นเป็น “ไม่สำเร็จ” พร้อมข้อความ
+       <i>“เกินกำหนดลองส่งอัตโนมัติ 7 วัน — ต้องสั่งส่งซ้ำด้วยตนเอง”</i></p>
+  </div>
+
+  <h3>แท็บ ตรวจสอบสถานะการปิดสิทธิ</h3>
+  <ul>
+    <li><b>ค้นหา:</b> สิทธิ · วันที่ · สถานะ สำเร็จ / ไม่สำเร็จ / ยกเลิก · HN · Invoice No</li>
+    <li><b>คอลัมน์:</b> HN · AN · เลขบัตร · ชื่อ · วันที่เข้ารับการรักษา · ประเภทผู้บริการ · สิทธิ · Invoice No. · <b>Seq No.</b> · <b>Authen Code</b> · จำนวนเงิน · เบิกได้ · เบิกไม่ได้ · สถานะ (มี Seq = สำเร็จ)</li>
+  </ul>
+
+  <h3>แท็บ ตรวจสอบสถานะการส่งเบิก (ผลจาก REP)</h3>
+  <ul>
+    <li><b>สถานะ:</b> ผ่าน · ติด Verify · DENY · ติด C</li>
+    <li><b>คอลัมน์:</b> REP No. · Transaction Id · วันที่รับบริการ/จำหน่าย · HN · AN · ชื่อ · สิทธิ · Invoice No. · ยอดจองเคลม · สถานะ · กองทุนหลัก/ย่อย · Error Code · <b>อธิบาย · วิธีแก้ไข</b> · Remark</li>
+    <li><b>ออกรายงาน</b> → Excel “ตรวจสอบสถานะการส่งเบิก” (คอลัมน์ กองทุนหลัก / กองทุนย่อย / Error Code ในไฟล์สลับกัน — ดูค่าบนจอเป็นหลัก)</li>
+  </ul>
+
+  <h3>แท็บ ตรวจสอบสถานะการรับเงิน (ผลจาก Statement)</h3>
+  <ul>
+    <li><b>สถานะ:</b> ผ่าน (= ได้รับ Statement)</li>
+    <li><b>คอลัมน์:</b> REP No. · Transaction Id · … · Project Code · ยอดเรียกเก็บ · พรบ. · AdjRW · ล่าช้า (PS) · CCUF · อัตราจ่าย · จ่ายชดเชยหลังหัก · คำนวณได้ · จ่ายจริง · <b>ยอดโอน</b> · VA · ประเภทข้อมูล</li>
+  </ul>
+
+  <h3>แท็บ ตรวจสอบสถานะจาก สปสช.</h3>
+  <ul>
+    <li><b>ค้นหา:</b> กลุ่มสิทธิ (ล็อก UCS) · สิทธิ · วันที่ · สถานะ สปสช. · ประเภทผู้บริการ OPD/IPD · HN</li>
+    <li><b>สถานะ สปสช.:</b> บันทึกข้อมูลจาก his · สปสช.รับข้อมูล · ข้อมูลไม่สมบูรณ์ · ปฏิเสธ · อนุมัติ · ตัดรอบการเบิกจ่าย · โอนเงินเรียบร้อย · ส่งช่องทางอื่นแล้ว · ส่งข้อมูลใหม่แล้ว · ไม่ประสงค์เบิก สปสช.</li>
+    <li><b>อัพเดตสถานะ</b> — ถาม สปสช. ทีละใบตามเงื่อนไขที่ค้น · <b>ช้ามากถ้าช่วงกว้าง</b> ให้กรองให้แคบก่อน ·
+        ใบผู้ป่วยในถูกถามโดยไม่มีเลข AN จึงมักไม่ได้สถานะ</li>
+  </ul>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d15">15 · import REP — นำเข้าผลการตรวจสอบ</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> การส่งเบิก › import REP</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/verify-claim/import-rep</code></span>
+    <span class="role"><b>ขั้น:</b> 5 รับผล</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>นำไฟล์ REP (ผลตรวจข้อมูลเบิก) จาก สปสช. เข้าระบบ จับคู่แต่ละแถวกับใบเรียกเก็บ แล้วตั้งสถานะใบเป็น <b>A / C / D / V</b></dd>
+    <dt>ทำเมื่อไร</dt><dd>ทุกครั้งที่ได้ไฟล์ REP</dd>
+    <dt>ต้องมีก่อน</dt><dd>ใบเรียกเก็บที่ส่งไปแล้ว · ไฟล์ .xlsx / .xls (<b>นามสกุลตัวพิมพ์เล็ก</b> — .XLSX ถูกปฏิเสธ)</dd>
+    <dt>ได้อะไร</dt><dd>รายการ REP ผูกกับใบเรียกเก็บ · สถานะใบอัปเดต · รายการที่ต้องแก้พร้อม “อธิบาย” และ “วิธีแก้ไข”</dd>
+  </dl>
+
+  <h3>รายละเอียด</h3>
+  <ol class="menu">
+    <li><b>Import REP</b> → เลือกประเภทไฟล์
+      <ul>
+        <li><b>UCS</b> — REP ปกติ (ระบบอ่านหัวตารางบรรทัดที่ 8)</li>
+        <li><b>UCS (ORF)</b> — REP ของ OP Refer (หัวตารางบรรทัดที่ 9 · ถือเป็น OP ทั้งหมด)</li>
+        <li><b>OFC</b> — ข้าราชการ: แต่ละชีตคือ 1 REP (<b>ชื่อชีต = เลข REP</b>) · <b>ไม่</b>เปลี่ยนสถานะใบ · หยุดทันทีเมื่อเจอแถวที่ HN หรือกลุ่มสิทธิไม่ตรงกับใบ</li>
+      </ul>
+      <p>นำเข้าไฟล์ UCS เดิมซ้ำได้ — แถวที่มี Transaction ID แล้วจะถูกข้าม · นำเข้าสำเร็จระบบค้นเลข REP นั้นให้อัตโนมัติ</p></li>
+    <li><b>ระบบจับคู่แถว REP กับใบเรียกเก็บ</b>
+      <ul>
+        <li>ไฟล์มีเลข Invoice → ผูกกับใบนั้น</li>
+        <li>ไม่มี: OP → หา Visit ของ HN นั้น<b>วันเดียวกัน</b>ที่มีใบเรียกเก็บ UCS ของ OPD <b>ใบเดียวพอดี</b> ·
+            IP → หาจาก AN ที่มีใบเรียกเก็บ UCS ของ IPD <b>ใบเดียวพอดี</b></li>
+        <li>หาไม่เจอ หรือเจอหลายใบ → แถวถูกเก็บไว้แต่<b>ไม่ผูก Invoice</b></li>
+      </ul></li>
+    <li><b>ค้นดูผล</b> — <b>ค้นหา REP*</b> (บังคับ) · รหัสปฏิเสธ · Invoice No. (พิมพ์ <code>-</code> = แถวที่ยังไม่ผูกใบ)
+      <p>คอลัมน์: วันที่นำเข้า · Transaction Id · Service Id · Invoice No. · เลขบัตร · HN · AN · ชื่อ · วันที่รักษา/จำหน่าย · ประเภท · ยอดส่งเบิก · <b>อธิบาย · วิธีแก้ไข</b> · รหัสปฏิเสธ · สถานะ</p></li>
+    <li><b>ผูกใบด้วยมือ</b> — ไอคอนแก้ไขบนแถวที่ยังไม่มี Invoice → หน้าต่าง “เลือก Invoice” แสดงใบของ HN นั้น → เลือก → <b>ยืนยัน</b> · ระบบตั้งสถานะใบตามผลของแถว</li>
+  </ol>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ผลในไฟล์</th><th>สถานะบนจอ</th><th>สถานะใบ</th></tr></thead>
+    <tbody>
+      <tr><td>Error Code = “-” และไม่มีรหัส Verify</td><td>ผ่าน</td><td>A</td></tr>
+      <tr><td>Error Code = “-” แต่มีรหัส Verify</td><td>ติด Verify</td><td>V</td></tr>
+      <tr><td>Error Code = DENY</td><td>ติด DENY</td><td>D</td></tr>
+      <tr><td>Error Code อื่น</td><td>ติด C</td><td>C</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--warn">
+    <b class="note__label">นำเข้าแล้วไม่มีอะไรขึ้น = ไม่สำเร็จ</b>
+    <p>ข้อผิดพลาดบางแบบ (เช่น แถว IP ที่ไม่มี AN ทำให้ทั้งไฟล์ไม่ถูกบันทึก) ไม่มีข้อความแจ้ง หน้าต่างโหลดแค่ปิดไป ·
+       หลังนำเข้าทุกครั้ง ตรวจว่ารายการของเลข REP นั้นขึ้นในตาราง ·
+       Visit ที่ข้ามเที่ยงคืน (วันที่ใน REP ต่างจากวันรับบริการ) จะไม่ถูกจับคู่อัตโนมัติ ต้องผูกเอง ·
+       หน้าต่าง “เลือก Invoice” แสดงแค่ 10 ใบแรก และไม่กันการเลือกใบที่ผูกกับ REP อื่นแล้ว</p>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d16">16 · เปลี่ยนรอบส่งเบิก และ บันทึกเลื่อนรอบการเรียกเก็บ</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> การส่งเบิก › เปลี่ยนรอบส่งเบิก (<code>/verify-claim/change-disbursement-cycle</code>)</span>
+    <span class="role"><b>เมนู:</b> บันทึกเลื่อนรอบการเรียกเก็บ (<code>/round-upload</code> · <code>…_ROUND_CHANGE</code>)</span>
+    <span class="role"><b>ขั้น:</b> 5 → 3</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ย้ายใบเรียกเก็บที่ได้ผลแล้ว (ส่วนใหญ่คือติด C) ไปรอบใหม่เพื่อส่งซ้ำ — ทีละใบ/หลายใบจากหน้าจอ หรือเป็นชุดด้วยไฟล์ Excel</dd>
+    <dt>ทำเมื่อไร</dt><dd>หลัง import REP และแก้ข้อมูลของใบที่ติดเรียบร้อย</dd>
+    <dt>ต้องมีก่อน</dt><dd>รอบปลายทางที่<b>เปิดอยู่และยังไม่หมดอายุ</b> · (หน้าจอ) ใบต้องมีผล REP แล้ว และอยู่ในรอบที่ไม่ใช่รอบอัตโนมัติ</dd>
+    <dt>ได้อะไร</dt><dd>ใบอยู่ในรอบใหม่ <b>และสิทธิของใบถูกเปลี่ยนเป็นสิทธิของรอบใหม่</b></dd>
+  </dl>
+
+  <h3>16.1 เปลี่ยนรอบส่งเบิก (หน้าจอ)</h3>
+  <ol class="steps">
+    <li>เลือก <b>สิทธิการรักษา*</b> และ <b>ผู้ป่วยนอก/ผู้ป่วยใน*</b> → ค้นหา
+      <p class="small">คอลัมน์: สิทธิ · เลขที่เครดิต · Invoice No. · เลขบัตร · HN · ชื่อ — แสดงเฉพาะใบในรอบที่ไม่ใช่ Auto และรอบนั้นมี REP นำเข้าแล้ว</p></li>
+    <li>ติ๊กใบ → <b>เปลี่ยนรอบส่งเบิก</b> → เลือก <b>รอบส่งเบิกใหม่*</b> → ตรวจ “รายการที่ได้รับผลกระทบ” → <b>ยืนยัน</b></li>
+    <li>ยังไม่มีรอบปลายทาง → ปุ่ม <b>สร้างรอบส่งเบิก</b></li>
+  </ol>
+  <div class="note note--warn">
+    <b class="note__label">เลือกรอบปลายทางให้ถูกสิทธิ</b>
+    <p>ตัวเลือกรอบใหม่แสดงรอบที่เปิดอยู่ของ<b>ทุกสิทธิ</b> และขึ้นแค่<b>ชื่อสิทธิ</b> ไม่มีเลขรอบ ·
+       ถ้าเลือกรอบของสิทธิอื่น ใบจะถูกเปลี่ยนสิทธิตามไปเงียบ ๆ · ตรวจในหน้าตรวจสอบรอบส่งเบิกหลังย้ายทุกครั้ง</p>
+  </div>
+
+  <h3>16.2 บันทึกเลื่อนรอบการเรียกเก็บ (ไฟล์ Excel)</h3>
+  <ol class="steps">
+    <li>เลือก <b>เลขที่รอบการส่งเบิก*</b> และสิทธิรักษา (ถ้าเว้นว่าง ใบที่ย้ายจะ<b>ไม่มีสิทธิ</b> — ควรเลือกเสมอ)</li>
+    <li>เลือกไฟล์ <b>.xlsx</b> — ระบบอัปโหลดทันที (ถามรหัสผ่านทุกครั้ง)
+      <p class="small">แถวที่ 1 เป็นหัวคอลัมน์ ชื่อต้องตรงตัวอักษร: <code>Invoice_no.</code> · <code>HN</code> · <code>PID</code> · <code>Ptname</code> · <code>Cliam</code> · <code>Payment</code> · <code>Status</code> · <code>Note</code> · ข้อมูลเริ่มแถวที่ 2</p></li>
+    <li>ผลรายแถวขึ้นในตาราง: ผ่าน = ย้ายเข้ารอบ ตั้งสถานะ A ·
+        ไม่ผ่าน: <i>“ปิดรอบแล้ว”</i> · <i>“มีค่าใช่จ่ายแล้ว”</i> (มีการรับชำระแล้ว) · <i>“ไม่พบ InvoiceNo”</i></li>
+    <li><b>Export</b> → ดาวน์โหลดไฟล์ “เลื่อนงวด…xlsx” ที่มีผลรายแถว</li>
+  </ol>
+  <div class="note note--danger">
+    <b class="note__label">ตอนนี้ไฟล์ย้ายได้แค่แถวแรก</b>
+    <p>จากการตรวจระบบ การอ่านเลข Invoice หยุดอยู่ที่แถวที่ 2 ของไฟล์ แถวอื่นจะขึ้น “ไม่พบ InvoiceNo” และไม่ถูกย้าย ·
+       จนกว่าจะแก้ ให้ใช้ <b>เปลี่ยนรอบส่งเบิก (16.1)</b> หรือแท็บนำเข้ารอบใน <a href="#d6">Hybrid Invoice</a> แทน</p>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d17">17 · import Statement — นำเข้ายอดโอนเงิน</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> การส่งเบิก › import Statement</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/verify-claim/import-statement</code></span>
+    <span class="role"><b>ขั้น:</b> 5 รับผล</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>นำไฟล์ Statement (STM) ของ สปสช. เข้าระบบ เติมยอดชดเชย/ยอดโอนลงแถว REP เดิม และเปลี่ยนสถานะใบ</dd>
+    <dt>ทำเมื่อไร</dt><dd>เมื่อ สปสช. ส่ง Statement การโอนเงิน</dd>
+    <dt>ต้องมีก่อน</dt><dd><b>ต้อง import REP ของเลขเดียวกันก่อน</b> — ไม่อย่างนั้นขึ้น <i>“ไม่สามารถนำเข้า REP No. … กรุณานำเข้าไฟล์ REP ก่อน”</i></dd>
+    <dt>ได้อะไร</dt><dd>ใบเรียกเก็บสถานะ <b>2 ตัดลูกหนี้แล้ว</b> (แถวที่มีเลข STM) หรือ <b>S ได้รับ Statement</b> · ยอดโอนดูได้ในแท็บตรวจสอบสถานะการรับเงิน</dd>
+  </dl>
+
+  <h3>รายละเอียด</h3>
+  <ol class="menu">
+    <li><b>Import Statement</b> — ไฟล์ .xlsx/.xls ที่มีชีตชื่อตรงตามรูปแบบ สปสช. ระบบอ่านทั้ง OP และ IP 4 ประเภท:
+      <b>ข้อมูลปกติ</b> · <b>ข้อมูลอุทธรณ์</b> · <b>ข้อมูลปกติ ผู้พิการ (D1)</b> · <b>ข้อมูลอุทธรณ์ ผู้พิการ (D1)</b> —
+      ชีตที่ไม่มีจะถูกข้าม (ไม่ต้องเลือกประเภทเอง ระบบแยกจากชื่อชีต)</li>
+    <li><b>ค้นดูผล</b> — ค้นหา REP · วันที่เริ่มต้น/สิ้นสุด
+      <p>คอลัมน์: วันที่นำเข้า · เลขที่เข้ารับบริการ · HN · AN · ชื่อ · วันที่รักษา/จำหน่าย · ประเภท · ยอดเรียกเก็บ · AdjRW · ล่าช้า (PS) · CCUF · อัตราจ่าย · จ่ายชดเชยหลังหัก · คำนวณได้ · จ่ายจริง · <b>ยอดโอน</b> · ประเภทข้อมูล</p></li>
+  </ol>
+  <div class="note note--warn">
+    <b class="note__label">นำเข้าเสร็จแต่ตารางว่าง</b>
+    <p>ช่องวันที่คือ<b>วันที่รับบริการ/Admit</b> ไม่ใช่วันที่นำเข้า และค่าเริ่มต้นคือวันนี้ — ให้ค้นด้วยเลข REP หรือเลือกช่วงวันที่รับบริการ ·
+       วันที่สิ้นสุดไม่รวมเวลาหลังเที่ยงคืนของวันนั้น ให้เลือกเกินไป 1 วัน ·
+       นำเข้าซ้ำจะเขียนทับยอดและตั้งสถานะใหม่เป็น S/2 แม้ใบนั้นรับชำระ (P) ไปแล้ว</p>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d18">18 · ลงบันทึกสถานะข้อมูลเรียกเก็บ (กรมบัญชีกลาง · CSCD)</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> งานเรียกเก็บ › ลงบันทึกสถานะข้อมูลเรียกเก็บ</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/cscd-upload</code></span>
+    <span class="role"><b>สิทธิเมนู:</b> <code>REIMBURSEMENT_REIMBURSE_STATUS</code></span>
+    <span class="role"><b>ขั้น:</b> 5 รับผล</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>อัปโหลดไฟล์ผลของกรมบัญชีกลาง (สิทธิข้าราชการ) เพื่อตั้งสถานะใบเรียกเก็บรายใบ</dd>
+    <dt>ทำเมื่อไร</dt><dd>เมื่อได้ไฟล์ผลจากกรมบัญชีกลาง</dd>
+    <dt>ต้องมีก่อน</dt><dd>ไฟล์ <b>.xlsx</b> ที่หัวคอลัมน์แถวที่ 1 ตรงตัวอักษร: <code>Invoice_no.</code> · <code>HN</code> · <code>PID</code> · <code>Ptname</code> · <code>Cliam</code> · <code>Payment</code> · <code>Status</code> · <code>Note</code></dd>
+    <dt>ได้อะไร</dt><dd>สถานะใบถูกตั้งตามคอลัมน์ Status ของไฟล์ · ตาราง “รายการข้อมูลรับรองสิทธิกรมบัญชีกลาง” แสดงผลรายแถว</dd>
+  </dl>
+
+  <h3>รายละเอียด</h3>
+  <ol class="steps">
+    <li>กด <b>Upload</b> → ยืนยันรหัสผ่าน → เลือกไฟล์</li>
+    <li>ระบบหาใบเรียกเก็บจาก Invoice_no. — ตั้งสถานะเฉพาะใบที่ <b>Payment ในไฟล์ = ยอดเรียกเก็บในระบบ</b> พอดี ·
+        ไม่ตรง → <i>“จำนวนเงินเรียนเก็บไม่ถูกต้อง”</i> · ไม่พบ → <i>“ไม่พบ InvoiceNo”</i></li>
+    <li>ตารางผล: (ไอคอนเตือนเมื่อสถานะไม่ใช่ A หรือมีข้อผิดพลาด — ชี้ดูข้อความ) · Invoice No. · Hn · Pid · Name · จน.เรียกเก็บ · สถานะ · หมายเหตุ</li>
+  </ol>
+  <div class="note note--warn">
+    <b class="note__label">ตรวจคอลัมน์ Status ในไฟล์ก่อนอัปโหลด</b>
+    <p>ระบบเขียนค่าในคอลัมน์ Status ลงใบตรง ๆ ไม่ตรวจว่าเป็นรหัสที่ถูก (ควรเป็น A / C / D / V / S / P / 2) ·
+       ปุ่ม <b>Export</b> คืนไฟล์ที่อัปโหลดไป<b>โดยไม่มีผลรายแถว</b> — ดูผลจากตารางบนจอแทน</p>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d19">19 · บันทึกรับชำระเงิน — ตัดลูกหนี้</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> งานเรียกเก็บ › บันทึกรับชำระเงิน</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/receive-payment</code></span>
+    <span class="role"><b>สิทธิเมนู:</b> <code>REIMBURSEMENT_REIMBURSE_PAYMENT</code></span>
+    <span class="role"><b>ขั้น:</b> 6 รับชำระ</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>บันทึกเงินที่ได้รับจากผู้จ่าย ผูกกับใบเรียกเก็บหลายใบในครั้งเดียว และบันทึก “ส่วนขาด” ที่ผู้จ่ายตัดไม่จ่าย</dd>
+    <dt>ทำเมื่อไร</dt><dd>เมื่อเงินเข้าบัญชีโรงพยาบาลแล้ว</dd>
+    <dt>ต้องมีก่อน</dt><dd><b>รอบใบเสร็จ</b> (ประเภทรับชำระเรียกเก็บ) ที่เปิดอยู่ · ยอดที่ได้รับจริงต่อใบ</dd>
+    <dt>ได้อะไร</dt><dd>ใบรับชำระ 1 ใบ (ประเภทรับชำระเรียกเก็บ) · ใบเรียกเก็บที่ <b>รับ + ส่วนขาด = ยอดเรียกเก็บ</b> เป็นสถานะ <b>P</b> · ไม่พอดี → สถานะ 1 พร้อมยอดค้างชำระ</dd>
+  </dl>
+
+  <div class="note note--tip">
+    <b class="note__label">ตั้งตัวกรองก่อน แล้วค่อยกรอกหัวใบ</b>
+    <p>เปลี่ยนตัวกรองรายการใบเรียกเก็บเมื่อไร ฟอร์มด้านบน (รอบ ผู้ชำระ วิธีชำระ) จะถูกล้างทั้งหมด</p>
+  </div>
+
+  <h3>ลำดับการทำ</h3>
+  <ol class="steps">
+    <li><b>หาใบเรียกเก็บที่จะรับชำระ</b> (แผง “ข้อมูลเรียกเก็บ” ด้านล่าง)
+      <p>ช่องที่เขียนว่า “เลขที่รอบการส่งเบิก” จริง ๆ ค้นด้วย <b>เลข Invoice</b> · ช่วงวันที่ออกใบ (ไม่เกิน 365 วัน) ·
+         สถานะ: <b>ยังไม่รับชำระ</b> (ค่าเริ่มต้น — แสดงเฉพาะสถานะ 1) / รับชำระแล้ว / ทั้งหมด · นอก/ใน/ทั้งหมด · สิทธิ</p>
+      <p class="small">ใบที่ได้ผล REP/Statement แล้ว (A, C, V, S, 2 ฯลฯ) จะไม่อยู่ในตัวกรอง “ยังไม่รับชำระ” — เลือก <b>ทั้งหมด</b></p></li>
+    <li><b>ติ๊กใบและกรอกยอด</b>
+      <p>คอลัมน์: Invoice No. · AN · HN · ชื่อ · สิทธิ · จน.เงินเรียกเก็บ · ชำระแล้ว · ค้างชำระ · <b>ยอดชำระ</b> (กรอก) · <b>กำไร/ส่วนขาด</b> (กรอกได้เมื่อติ๊ก “ส่วนขาด”) ·
+         ใบที่รับชำระครบแล้วติ๊กไม่ได้</p></li>
+    <li><b>กรอกรายละเอียด</b> — <b>หน่วยออกใบเสร็จ*</b> · <b>เลขที่รอบใบเสร็จ*</b> (สิทธิเติมจากรอบ) · เลขที่/เล่มที่ใบเสร็จ (พิมพ์เอง) · <b>วันที่รับชำระ*</b> · <b>ชื่อหน่วยงาน/ผู้ชำระเงิน*</b> · <b>หมายเหตุการชำระเงิน*</b> · ส่วนขาด</li>
+    <li><b>เลือกวิธีชำระ</b> (อย่างน้อย 1): โอนเงิน (บัญชีผู้โอน ธนาคาร วันที่โอน) · ส่วนขาด · เงินสด (รับมา เงินทอน) · บัตรเครดิต · QR code · เช็ค</li>
+    <li><b>บันทึก</b> → ยืนยันรหัสผ่าน → <i>“บันทึกข้อมูลสำเร็จ”</i> · ขาดช่องบังคับ → <i>“กรุณากรอกข้อมูลให้ครบถ้วน”</i></li>
+    <li>หน้าจอถูกล็อกหลังบันทึก — <b>โหลดหน้าใหม่</b>ก่อนบันทึกรายการถัดไป</li>
+  </ol>
+
+  <div class="note note--warn">
+    <b class="note__label">สิ่งที่ระบบไม่ได้ตรวจให้</b>
+    <p><b>วันที่รับชำระ</b>ที่กรอกไม่ถูกใช้ — วันที่ของใบรับชำระคือเวลาที่กดบันทึก ·
+       ระบบไม่ตรวจว่าผลรวมวิธีชำระเท่ากับยอดที่ติ๊ก · รับเกินยอดได้ (เกินเก็บเป็น “กำไร”) แต่ใบจะ<b>ไม่เป็น P</b> เพราะไม่พอดี ·
+       ถ้ารอบใบเสร็จที่เลือกปิด/หมดอายุ ระบบสร้างรอบใหม่ (ไม่มีสิทธิ) ให้เงียบ ๆ ·
+       ไม่มีใบลดหนี้ในโมดูลนี้ — ส่วนที่ผู้จ่ายไม่จ่ายให้บันทึกเป็น <b>ส่วนขาด</b> · ปุ่มพิมพ์ในหน้านี้ยังไม่มีเอกสารให้เลือก</p>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d20">20 · ตรวจสอบรอบรับชำระ</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> งานเรียกเก็บ › ตรวจสอบรอบรับชำระ</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/verify-receive</code></span>
+    <span class="role"><b>ขั้น:</b> 6 รับชำระ</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>สร้างรอบใบเสร็จ · ดูใบรับชำระในแต่ละรอบ และใบเรียกเก็บที่ถูกชำระด้วยใบนั้น · ยกเลิกใบรับชำระที่บันทึกผิด</dd>
+    <dt>ทำเมื่อไร</dt><dd>สร้างรอบก่อนบันทึกรับชำระ · สอบทานหลังบันทึก · ยกเลิกเมื่อบันทึกผิด</dd>
+    <dt>ต้องมีก่อน</dt><dd>—</dd>
+    <dt>ได้อะไร</dt><dd>รอบใบเสร็จพร้อมใช้ · รายการใบรับชำระที่ตรวจแล้ว</dd>
+  </dl>
+
+  <h3>รายละเอียด</h3>
+  <ol class="menu">
+    <li><b>รอบการรับชำระ</b> (แผงซ้าย) — ค้นเลขที่รอบ · ปุ่ม <b>+</b> เพิ่มรอบ: ประเภทใบเสร็จ · <b>สิทธิการรักษา*</b> · วันเริ่มต้น · วันสิ้นสุด · <b>หมายเหตุ*</b>
+      <p>คอลัมน์: ชื่อรอบ · ปิดรอบ? · สิทธิ · จำนวนเงิน · ชำระแล้ว</p></li>
+    <li><b>รายการใบเสร็จทั้งหมด</b> — ค้นเลขที่ใบเสร็จ/วันที่ · คอลัมน์: เลขที่ใบเสร็จ · วันที่ · จำนวนเงินรวม · ชำระแล้ว · ส่วนขาด · กำไร · ปุ่มยกเลิก</li>
+    <li><b>ข้อมูลเรียกเก็บ</b> — ใบเรียกเก็บที่ชำระด้วยใบเสร็จที่เลือก: Invoice No. · AN · HN · ชื่อ · จน.เงินเรียกเก็บ · ชำระแล้ว · ส่วนขาด</li>
+    <li><b>ยกเลิกใบรับชำระ</b> — ระบุ <b>เหตุผลในการยกเลิกการรับชำระเงินเรียกเก็บ*</b> → ยืนยันรหัสผ่าน · กดไม่ได้ถ้ารอบปิดแล้ว</li>
+  </ol>
+  <div class="note note--danger">
+    <b class="note__label">ยกเลิกใบรับชำระแล้ว ยอดในใบเรียกเก็บยังดูเหมือนชำระแล้ว</b>
+    <p>หลังยกเลิก ใบเรียกเก็บทุกใบในนั้นกลับเป็นสถานะ <b>1</b> (แม้เดิมเป็น A/S/2) แต่ช่อง <b>ชำระแล้ว/ค้างชำระ</b> ยังนับยอดของใบที่ยกเลิก ·
+       ก่อนบันทึกรับชำระใหม่แทน ให้ตรวจยอดค้างจริงจาก Statement ไม่ใช่จากช่องค้างชำระ</p>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d21">21 · Dashboard ทั้ง 3 หน้า</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/dashboard</code> · <code>/summary-dashboard</code> · <code>/dashboard-mophclaim</code></span>
+    <span class="role"><b>ขั้น:</b> ติดตามผล</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd><b>Dashboard</b> = ตามงานค้างรายผู้ป่วย · <b>Summary Dashboard</b> = ภาพรวมเชิงตัวเลขสำหรับหัวหน้า · <b>Dashboard MophClaim</b> = ตามการส่งข้อมูลบริการ DMHT/EPI/DT</dd>
+    <dt>ทำเมื่อไร</dt><dd>ทุกเช้า (Dashboard) · ประชุม/สรุปงวด (Summary)</dd>
+    <dt>ได้อะไร</dt><dd>รายการที่ยังไม่เรียกเก็บ · ตัวเลขสรุป · รายการส่งข้อมูลที่ล้มเหลวพร้อมปุ่มส่งซ้ำ</dd>
+  </dl>
+
+  <h3>21.1 Dashboard</h3>
+  <p>ตัวกรอง: ช่วงวันที่ · สิทธิ · นอก/ใน/ทั้งหมด · OPD นับตาม<b>วันรับบริการ</b> · IPD นับตาม<b>วันจำหน่าย</b> ·
+     <b>คลิกการ์ด</b>เพื่อกรองรายการด้านล่าง · <b>คลิกแถว</b>เพื่อไปหน้าสรุปค่ารักษาของผู้ป่วยนั้น</p>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>การ์ด</th><th>นับอะไร</th></tr></thead>
+    <tbody>
+      <tr><td>ผู้ป่วยนอกที่มารับบริการ</td><td>สิทธิ OPD ทุกรายในช่วงวันที่</td></tr>
+      <tr><td>ผู้ป่วยนอกที่เรียกเก็บ / ที่ยังไม่เรียกเก็บ</td><td>มียอดเรียกเก็บแล้ว / ยังมียอดเบิกได้ที่ยังไม่เรียกเก็บ (ไม่นับสิทธิเงินสด)</td></tr>
+      <tr><td>ผู้ป่วยในที่จำหน่าย · สรุปโรคแล้ว · ปิดบัญชี · ยังไม่ปิดบัญชี</td><td>นับตามสถานะ Admit</td></tr>
+      <tr><td>ผู้ป่วยในที่เรียกเก็บ / ยังไม่เรียกเก็บ</td><td>มี/ไม่มีใบเรียกเก็บ</td></tr>
+      <tr><td>เรียกเก็บผ่าน</td><td>ทุกใบของสิทธินั้นสถานะ P</td></tr>
+      <tr><td>ตัดลูกหนี้</td><td>ทุกใบสถานะ 2</td></tr>
+      <tr><td>ยกเลิกเรียกเก็บ</td><td>มีใบที่ถูกยกเลิก</td></tr>
+      <tr><td>เรียกเก็บไม่ผ่าน</td><td>มีใบสถานะ C — <b>ตอนนี้แสดง 0 เสมอ</b> ให้ดูจากแท็บผล REP แทน</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>คอลัมน์รายการ: HN · AN · ชื่อ · หน่วยงาน · สิทธิ · จำนวนเงิน · เครดิต · เบิกได้ · เบิกไม่ได้ · เรียกเก็บแล้ว · ชำระแล้ว</p>
+
+  <h3>21.2 Summary Dashboard</h3>
+  <ul>
+    <li><b>ตัวกรอง:</b> กลุ่มสิทธิ · ช่วงวันที่ · กด ค้นหา</li>
+    <li><b>ทั้งหมด:</b> จำนวนการเข้ารับบริการ · ที่เรียกเก็บแล้ว · ที่ยังไม่เรียกเก็บ</li>
+    <li><b>รายได้แยกตามกลุ่มสิทธิ:</b> กราฟวงกลม + ตาราง (จำนวนครั้ง · ยอดเรียกเก็บ ล้านบาท)</li>
+    <li><b>ยอดเงินทั้งหมดที่เข้ารับบริการ:</b> เข้ารับบริการ → เรียกเก็บ → ส่งจองเคลม → ส่งเบิก → รับเงิน (ล้านบาท)</li>
+    <li><b>สถานะการส่งเบิก:</b> Approve · Verify · ติด C · Deny · ไม่ทราบ (จากผล REP) — สัดส่วนในกราฟนี้ยังคำนวณหน่วยไม่ตรงกัน ใช้ดูแนวโน้มเท่านั้น</li>
+    <li><b>ยอดค้างชำระ:</b> แยกอายุ 30 / 31–60 / 61–90 / มากกว่า 90 วัน</li>
+    <li><b>ภาพรวมเปรียบเทียบรายปี / รายเดือน:</b> “ยอดที่เรียกเก็บไป” เทียบ “ยอดที่รับเงิน” — <b>“รับเงิน” ในกราฟนี้หมายถึงมีผล REP แล้ว</b> ไม่ใช่เงินเข้าจริง</li>
+  </ul>
+
+  <h3>21.3 Dashboard MophClaim</h3>
+  <ul>
+    <li><b>ตัวกรอง:</b> ช่วงวันที่ · ประเภทส่งข้อมูล (DMHT ตรวจผลเลือดเบาหวาน/ความดัน · EPI วัคซีนเด็ก · DT วัคซีนผู้ใหญ่) · สถานะการส่ง · HN</li>
+    <li><b>คอลัมน์:</b> HN · ชื่อ · Clinic · ClaimType · ClaimStage · ข้อความผิดพลาด · ClinicDate · วันที่สร้างข้อมูล</li>
+    <li><b>ส่งข้อมูลที่เลือก</b> — ส่งซ้ำแถวที่ติ๊ก (แถวสำเร็จติ๊กไม่ได้) · <b>ส่งใหม่ตามช่วงเวลา</b> — สรุปรายการล้มเหลวตามช่วงวันที่แล้วเลือกกลุ่มส่ง (อย่าปิดหน้าต่างระหว่างส่ง)</li>
+  </ul>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d22">22 · รายงาน</h2>
+
+  <div class="roles">
+    <span class="role"><b>เมนู:</b> งานเรียกเก็บ › รายงาน</span>
+    <span class="role"><b>เส้นทาง:</b> <code>/export-report</code></span>
+    <span class="role"><b>ขั้น:</b> ติดตามผล · ส่งบัญชี</span>
+  </div>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ออกรายงานลูกหนี้ส่งฝ่ายบัญชี · ใบ น.ค.1 · สรุปรายการติด C/Deny · รายงานอื่นที่ผู้ดูแลระบบติดตั้งให้โมดูลนี้</dd>
+    <dt>ทำเมื่อไร</dt><dd>สิ้นเดือน/สิ้นงวด · เมื่อต้องวิเคราะห์สาเหตุเบิกไม่ผ่าน</dd>
+    <dt>ได้อะไร</dt><dd>Excel หรือ PDF · และสถานะ “ส่งบัญชีแล้ว” ของรายการ</dd>
+  </dl>
+
+  <p>แถบซ้ายของหน้ารายงานมี 3 ลิงก์ประจำ (รายงานส่งบัญชี · ใบ น.ค.1 (New) · รายงาน Summary ลูกหนี้ติด C/Deny)
+     และรายงานที่ติดตั้งผ่าน <a href="05-admin-flow.html#m7">ผู้ดูแลระบบ › รายงานในระบบ</a> ซึ่งจะเห็นเฉพาะกลุ่มผู้ใช้ที่ได้รับสิทธิ</p>
+
+  <h3>22.1 รายงานส่งบัญชี (16 รายงาน)</h3>
+  <p>ตัวกรอง: <b>วันที่เริ่มต้น* · วันที่สิ้นสุด*</b> · สิทธิการรักษา · ผลรวม “ทั้งหมด N รายการ / จำนวนเงินรวม” · ส่งออก Excel/PDF</p>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>รายงาน</th><th>ใช้ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td>ผู้ป่วยนอก / ผู้ป่วยในรายบุคคล แยกตามสิทธิ</td><td>รายการใบเรียกเก็บรายคน (OPD ตามวันรับบริการ ไม่รวมสิทธิ 22 · IPD ตามวันจำหน่าย) — <b>ไม่รวมรายการที่ส่งบัญชีแล้ว</b></td></tr>
+      <tr><td>ผู้ป่วยนอก / ในรายบุคคล (ไม่ปิดบัญชี)</td><td>Visit/Admit ที่ยังไม่ปิดบัญชี — ใช้ตามงานค้างก่อนสิ้นงวด</td></tr>
+      <tr><td>สรุปการบันทึกตั้งลูกหนี้ OPD / IPD</td><td>จำนวนราย + ยอดเครดิต แยกตามสิทธิ</td></tr>
+      <tr><td>สรุปการบันทึกตั้งลูกหนี้ (ไม่ปิดบัญชี)</td><td>แบบสรุปของรายการที่ยังไม่ปิดบัญชี</td></tr>
+      <tr><td>สรุปการบันทึกตั้งลูกหนี้ OPD / IPD ตามผังบัญชี</td><td>รวมยอดตามรหัสผังบัญชีที่ผูกกับสิทธิ — ใช้กระทบยอดกับระบบบัญชี</td></tr>
+      <tr><td>ลูกหนี้ OPD สิทธิ 22 Detail / Summary</td><td>เฉพาะสิทธิ 22 ตามวันที่ห้องตรวจ</td></tr>
+      <tr><td>ลูกหนี้ IPD Detail / Summary</td><td>สิทธิ IPD ที่มีเครดิต (ไม่รวมสิทธิ 10)</td></tr>
+      <tr><td>ลูกหนี้ OPD Detail / Summary ไม่รวมสิทธิ 22, 10</td><td>สิทธิ OPD อื่นทั้งหมด</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--tip">
+    <b class="note__label">นำเข้าส่งบัญชีแล้ว — กันส่งซ้ำ</b>
+    <p>รายงานแบบรายบุคคล (Detail) มีปุ่ม <b>นำเข้าส่งบัญชีแล้ว</b> · ขั้นตอน: ออก Excel → ส่งฝ่ายบัญชี → นำ<b>ไฟล์เดิมที่ออกจากระบบ</b>กลับมานำเข้า →
+       รายการในไฟล์จะถูกทำเครื่องหมาย “ส่งบัญชีแล้ว” และไม่ขึ้นในรายงานรายบุคคลรอบถัดไป ·
+       ไฟล์ที่ไม่ได้ออกจากระบบ → <i>“ไม่ใช่ไฟล์ที่ export จากระบบ”</i> ·
+       <b>ตอนนี้ระบบทำเครื่องหมายได้ไม่ครบทุกแถว</b> (ประมาณ 7–8 แถวแรก) — ตรวจผลในรายงานหลังนำเข้า</p>
+  </div>
+
+  <h3>22.2 ใบ น.ค.1 (New)</h3>
+  <p>แบบรายการค่ารักษาพยาบาลผู้ป่วยนอก · ผู้ป่วยนอกสิทธิ 22 (เพิ่มคอลัมน์ Invoice No) · ผู้ป่วยใน —
+     ตัวกรอง: วันที่ · <b>สิทธิการรักษา (1)*</b> และ (2)–(4) เพิ่มได้ · ออก Excel/PDF เท่านั้น ไม่มีตารางบนจอ ·
+     คอลัมน์ 16 หมวดค่ารักษา · รวม · เบิกได้ · ส่วนลด · จ่ายเอง · เลขที่ใบส่งตัว · ห้องตรวจ · รพ.หลัก/รอง</p>
+
+  <h3>22.3 รายงาน Summary ลูกหนี้ติด C/Deny</h3>
+  <p>ตัวกรอง: วันที่เริ่มต้น* / สิ้นสุด* (วันที่ใบเรียกเก็บ) · คอลัมน์: Error Code · สถานะ · อธิบาย · วิธีแก้ไข · จำนวน ·
+     สีแดง = C/DENY · สีเหลือง = Verify · รายงานนี้รวมแถว “ผ่าน” ด้วย · ใช้วิเคราะห์ว่าติดเรื่องอะไรบ่อยที่สุด</p>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d23">23 · งานที่ระบบทำให้อัตโนมัติ</h2>
+
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ออกใบเรียกเก็บ จองเคลม ส่งข้อมูลบริการ และโอนค่าใช้จ่ายตาม ICD ให้เองตามเวลา โดยไม่ต้องมีคนกด</dd>
+    <dt>ต้องมีก่อน</dt><dd>ตั้ง Auto Invoice / Auto Booking Claim ที่สิทธิ · ตั้ง ICD ตามสิทธิ · Token ใช้ได้</dd>
+    <dt>เมื่อล้มเหลว</dt><dd><b>ไม่มีข้อความแจ้งบนหน้าจอ</b> — เห็นได้จากผลเท่านั้น (ใบไม่ถูกสร้าง · จองเคลมค้าง) จึงต้องตรวจทุกเช้า</dd>
+  </dl>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>งาน</th><th>เวลา</th><th>ทำอะไร</th><th>ดูผลที่</th></tr></thead>
+    <tbody>
+      <tr><td><b>สร้างใบเรียกเก็บอัตโนมัติ</b></td><td>18:00 · 21:00 · 01:00</td>
+          <td>ออกใบเรียกเก็บให้ <b>ผู้ป่วยนอก</b>ที่ใช้สิทธิตั้ง Auto Invoice (และสิทธิหลักของ Visit ก็ตั้งด้วย) มีเครดิต &gt; 0 ยังไม่มีใบเรียกเก็บ ไม่ได้ Admit และไม่ใช่ผ่าตัดวันเดียวกลับ ·
+              18:00 เก็บ Visit วันนี้ถึง 15:00 · 21:00 ถึง 18:00 · 01:00 เก็บทั้งเมื่อวาน ·
+              ใบเข้ารอบอัตโนมัติของสิทธินั้น (ไม่มีรอบ ระบบสร้างให้) · แล้วสร้างรายการจองเคลมสำหรับสิทธิ Auto Booking Claim</td>
+          <td>คอลัมน์ Auto? ในหน้ารอบ · การ์ด “ยังไม่เรียกเก็บ”</td></tr>
+      <tr><td><b>ส่งจองเคลม FDH</b></td><td>ทุกชั่วโมง นาทีที่ 30</td>
+          <td>ส่งรายการจองเคลมที่รอส่ง · ล้มเหลวชั่วคราวลองใหม่ทุก 6 ชม. ไม่เกิน 7 วัน</td>
+          <td>แท็บ ตรวจสอบ/ส่งจองเคลมใหม่</td></tr>
+      <tr><td><b>ส่งข้อมูล MOPH Claim</b></td><td>01:00</td>
+          <td>สร้างและส่งรายการบริการ DMHT / EPI / DT ย้อนหลัง 8 วัน · แจ้งสรุปทาง Telegram (ถ้าตั้งไว้)</td>
+          <td>Dashboard MophClaim</td></tr>
+      <tr><td><b>ส่งจำนวนการมารับบริการ FDH</b></td><td>01:00</td><td>ส่งข้อมูล Visit ของเมื่อวานเข้า FDH Data Hub</td><td>ไม่มีหน้าจอแสดงผล</td></tr>
+      <tr><td><b>โอนค่าใช้จ่ายตาม ICD</b></td><td>20:00</td>
+          <td>Visit ที่ได้รหัสวินิจฉัย<b>วันนี้</b>ตรงกับ “กำหนด ICD ตามสิทธิ” → เพิ่มสิทธินั้นให้ แล้วโอนค่าใช้จ่ายที่<b>สั่งวันนี้</b>ไปสิทธินั้น ·
+              ค่าใช้จ่ายที่สั่งหลัง 20:00 ไม่ถูกโอน</td>
+          <td>สิทธิ/ค่าใช้จ่ายในหน้าสรุปค่ารักษา</td></tr>
+      <tr><td>ติดตามสถานะจาก สปสช.</td><td>ปิดใช้งานอยู่</td><td>—</td><td>ใช้ปุ่ม อัพเดตสถานะ ในหัวข้อ 14 แทน</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--warn">
+    <b class="note__label">งานอัตโนมัติไม่ครอบคลุม</b>
+    <p><b>ผู้ป่วยใน</b> · <b>ผ่าตัดวันเดียวกลับ (ODS)</b> · Visit ที่ Admit ต่อ · สิทธิที่ไม่ได้ตั้ง Auto Invoice —
+       ต้องออกใบเรียกเก็บด้วยมือ (<a href="#d5">หัวข้อ 5</a>) หรือเป็นชุด (<a href="#d6">หัวข้อ 6</a>) ·
+       Visit ที่ค่าใช้จ่ายมาหลังรอบ 01:00 ของวันถัดไป จะไม่ถูกเก็บอีก</p>
+  </div>
+
+  <!-- ------------------------------------------------------------------ -->
+  <h2 id="d24">24 · รหัสยาเวชภัณฑ์ · รหัสค่าใช้จ่าย · รหัส Lab · รหัส X-Ray</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/drug-registration</code> · <code>/expense-registration</code> · <code>/lab-registration</code> · <code>/xray-registration</code></span>
+    <span class="role"><b>สิทธิเมนู:</b> <code>IT_ADMIN</code></span>
+  </div>
+  <dl class="kv">
+    <dt>ใช้ทำอะไร</dt><dd>ดูแลรหัสที่ใช้คิดค่าใช้จ่ายและรหัสที่ส่งออกในไฟล์เบิก — รหัสผิดทำให้ REP ติด C</dd>
+    <dt>ใครทำ</dt><dd>ผู้ดูแลระบบ (เห็นเมนูเฉพาะสิทธิ IT_ADMIN)</dd>
+    <dt>ดูเพิ่ม</dt><dd><a href="05-admin-flow.html#m2">ผู้ดูแลระบบ · รหัสหลัก</a></dd>
+  </dl>
+
+  <!-- ================================================================== -->
+  <h2 id="examples">ตัวอย่างการใช้งานจริง</h2>
+
+  <div class="ex">
+    <b class="exlabel">ตัวอย่างที่ 1 · ผู้ป่วยนอกสิทธิ UCS ที่ระบบออกใบให้เอง</b>
+    <ol>
+      <li>ผู้ป่วยมารับบริการ 10:00 · สิทธิ UCS ตั้ง Auto Invoice และ Auto Booking Claim ไว้</li>
+      <li><b>18:00</b> ระบบออกใบเรียกเก็บเข้ารอบอัตโนมัติของ UCS และสร้างรายการจองเคลม · <b>18:30</b> ส่งจองเคลม FDH สำเร็จ</li>
+      <li>เช้าวันถัดไป เจ้าหน้าที่เปิด <b>ตรวจสอบการขอ Authen Code</b> เลือก “ยังไม่ขอ” → เติม Authen Code ให้ 2 ราย</li>
+      <li>ปลายงวด เปิด <b>การปิดบัญชีผู้ป่วยนอก</b> ปิดบัญชีของช่วงวันที่ → เปิด <b>ตรวจสอบรอบก่อนส่งเบิก</b> Run Pre-Audit → Submit</li>
+      <li>เปิด <b>ตรวจสอบรอบส่งเบิก</b> → <b>ส่ง FDH</b> → รอบปิดเอง</li>
+      <li>ได้ REP → <b>import REP (UCS)</b> → ส่วนใหญ่ “ผ่าน” (A) · ได้ Statement → <b>import Statement</b> → สถานะ 2</li>
+      <li>เงินเข้า → <b>บันทึกรับชำระเงิน</b> เลือก “ทั้งหมด” เพื่อเห็นใบสถานะ 2 → กรอกยอด → ใบเป็น P</li>
+    </ol>
+  </div>
+
+  <div class="ex">
+    <b class="exlabel">ตัวอย่างที่ 2 · ผู้ป่วยในสิทธิข้าราชการ ออกใบด้วยมือ</b>
+    <ol>
+      <li>ผู้ป่วยจำหน่ายแล้ว · เปิด <b>ผู้ป่วยใน › สรุปค่ารักษาพยาบาล</b> ตรวจยอด พบค่า Lab ตกหล่น → <b>บันทึกค่าใช้จ่าย Lab/X-Ray/Other</b></li>
+      <li>กลับมาหน้าสรุป เลือกสิทธิข้าราชการ → <b>เรียกเก็บ</b></li>
+      <li>ระบบเลือกรอบเปิดของสิทธินี้ให้ · พิมพ์ <b>เลขขออนุมัติ EDC</b> เอง (IPD ไม่มีปุ่มขอเลข) · กรอกเลขที่หนังสือต้นสังกัด เจ้าของสิทธิ</li>
+      <li>เลือกรายการ → บันทึก → ได้ Invoice No. → <b>ออกจากหน้าทันที</b> (กันกดซ้ำ)</li>
+      <li><b>การปิดบัญชีผู้ป่วยใน</b> ค้นตามวันจำหน่าย → ปิดบัญชี</li>
+      <li><b>ตรวจสอบรอบส่งเบิก</b> → ส่งออก <b>CIPN</b> → ส่งไฟล์ → ล็อกรอบ</li>
+      <li>ได้ผลกรมบัญชีกลาง → <b>ลงบันทึกสถานะข้อมูลเรียกเก็บ</b> (ตรวจว่า Payment ในไฟล์ตรงยอดใบ) → <b>บันทึกรับชำระเงิน</b></li>
+    </ol>
+  </div>
+
+  <div class="ex">
+    <b class="exlabel">ตัวอย่างที่ 3 · REP กลับมาติด C แล้วต้องส่งใหม่</b>
+    <ol>
+      <li><b>import REP</b> แล้วค้นด้วยรหัสปฏิเสธ พบ 5 ใบ “ติด C” · อ่าน <b>อธิบาย</b> และ <b>วิธีแก้ไข</b> ของแต่ละใบ</li>
+      <li>3 ใบรหัสวินิจฉัยไม่สอดคล้อง → ประสานแพทย์แก้รหัส · 2 ใบโรงพยาบาลหลักผิด → แก้สิทธิที่ <b>ตรวจสอบสิทธิ</b> และแก้หัวใบที่ <b>ตรวจสอบ/แก้ไขการเรียกเก็บ</b></li>
+      <li>สร้างรอบใหม่ของสิทธิเดิม (ปิดรอบเดิมแล้ว)</li>
+      <li><b>เปลี่ยนรอบส่งเบิก</b> → ค้นสิทธิ → ติ๊ก 5 ใบ → เลือกรอบใหม่ (ระวังเลือกรอบของสิทธิเดิม) → ยืนยัน</li>
+      <li>ส่งออก/ส่ง FDH รอบใหม่ · เมื่อ REP รอบนี้กลับมา ใบเปลี่ยนเป็น A</li>
+    </ol>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="faq">ปัญหาที่พบบ่อยและวิธีแก้</h2>
+
+  <div class="faq">
+    <div>
+      <h4>กดเมนู “บันทึกข้อมูลเรียกเก็บ” แล้วเด้งกลับไปหน้าสรุปค่ารักษา</h4>
+      <p>เป็นการทำงานปกติ หน้านี้ต้องเปิดจากปุ่ม <b>เรียกเก็บ</b> ในหน้าสรุปค่ารักษาพยาบาลเพื่อพาสิทธิและ Visit ไปด้วย</p>
+    </div>
+    <div>
+      <h4>ออกใบเรียกเก็บแล้วบันทึกไม่ได้ ขึ้น “กรุณากรอกข้อมูลให้ครบถ้วน”</h4>
+      <p>เกือบทั้งหมดคือ <b>ไม่มีรอบส่งเบิก</b> (ช่องรอบว่าง) หรือ<b>ไม่มีเลขขออนุมัติ EDC</b> · ไม่มีรอบ → สร้างที่หน้าตรวจสอบรอบส่งเบิก ·
+         IPD ต้องพิมพ์เลข EDC เอง</p>
+    </div>
+    <div>
+      <h4>ดึง Invoice เข้ารอบแล้วไม่เจอบางใบ</h4>
+      <p>ตรวจว่าใบนั้น <b>อยู่ในรอบอื่นแล้ว</b>หรือไม่ (ใบที่ออกจากหน้าเรียกเก็บเข้ารอบทันที · ใบอัตโนมัติอยู่ในรอบ Auto) ·
+         สิทธิ/OPD-IPD ตรงกับรอบหรือไม่ · วันที่ออกใบอยู่ในช่วงที่กรอกหรือไม่ · ถูกยกเลิกหรือไม่ — <b>ไม่เกี่ยวกับปิดสิทธิหรือปิดบัญชี</b></p>
+    </div>
+    <div>
+      <h4>ใบอยู่ในรอบ แต่ไม่อยู่ในไฟล์ e-Claim</h4>
+      <p>ไฟล์ตัดใบที่ <b>ยอดเรียกเก็บเป็น 0 หรือติดลบ</b> และใบที่ถูกยกเลิกออก · ตรวจยอดใบที่หน้าตรวจสอบ/แก้ไขการเรียกเก็บ</p>
+    </div>
+    <div>
+      <h4>อยากแก้ค่าใช้จ่ายของ Visit ที่ปิดบัญชีแล้ว</h4>
+      <p>ไปที่ <b>การปิดบัญชี</b> แท็บ <b>ยกเลิกปิดบัญชี</b> → ยกเลิกเฉพาะรายการนั้น → แก้ → ปิดบัญชีใหม่ ·
+         ถ้าใบเรียกเก็บส่งไปแล้ว ต้องแก้ใบเรียกเก็บด้วย และรอบต้องยังไม่ปิด</p>
+    </div>
+    <div>
+      <h4>ปิดสิทธิแล้วขึ้น “ทำรายการเรียบร้อย” แต่ปุ่มยังเป็น “ปิดสิทธิ”</h4>
+      <p>ไม่สำเร็จ — ดูข้อความในหน้าต่างข้อผิดพลาดที่ขึ้นพร้อมกัน · ที่พบบ่อย: ผู้ใช้ไม่มีเลขบัตรประชาชนในระบบ · Token สปสช. หมดอายุ</p>
+    </div>
+    <div>
+      <h4>จองเคลมค้าง “ไม่สำเร็จ” จำนวนมากในวันเดียว</h4>
+      <p>มักเกิดจาก Token หมดอายุระหว่างรอบ · ให้ผู้ดูแลระบบใส่ Token ใหม่ แล้วค้นสถานะ “ไม่สำเร็จ” → ติ๊ก → <b>ส่งจองเคลมใหม่</b> → ดูสถานะหลังรีเฟรช</p>
+    </div>
+    <div>
+      <h4>import REP แล้วหลายแถวไม่มี Invoice No.</h4>
+      <p>ระบบจับคู่ไม่ได้เพราะ Visit ข้ามวัน หรือ Visit มีใบเรียกเก็บ UCS มากกว่า 1 ใบ · ค้น Invoice No. = <code>-</code> แล้วผูกเองทีละแถว</p>
+    </div>
+    <div>
+      <h4>import Statement แล้วขึ้น “กรุณานำเข้าไฟล์ REP ก่อน”</h4>
+      <p>Statement ต้องมี REP เลขเดียวกันในระบบก่อน · นำเข้า REP ที่ขาดแล้วนำเข้า Statement อีกครั้ง (นำเข้าซ้ำได้)</p>
+    </div>
+    <div>
+      <h4>บันทึกรับชำระแล้ว ใบยังขึ้น “ยังไม่รับชำระ”</h4>
+      <p>ยอดรับ + ส่วนขาด ต้องเท่ากับยอดเรียกเก็บ<b>พอดี</b> · ขาด → บันทึกส่วนที่เหลือเพิ่ม หรือบันทึกเป็นส่วนขาด · เกิน → ใบไม่เป็น P ต้องยกเลิกใบรับชำระแล้วบันทึกใหม่ให้พอดี</p>
+    </div>
+    <div>
+      <h4>หาใบที่จะรับชำระไม่เจอ</h4>
+      <p>ตัวกรองเริ่มต้น “ยังไม่รับชำระ” แสดงเฉพาะสถานะ 1 · ใบที่ได้ผล REP/Statement แล้วให้เลือก <b>ทั้งหมด</b> · ช่องค้นหาใช้เลข Invoice ไม่ใช่เลขรอบ</p>
+    </div>
+    <div>
+      <h4>ยอดรายงานลูกหนี้ไม่ตรงกับฝ่ายบัญชี</h4>
+      <p>ตรวจ (1) รายการที่ยังไม่ปิดบัญชี (รายงาน “ไม่ปิดบัญชี”) · (2) รายการที่ทำเครื่องหมายส่งบัญชีแล้วจะหายจากรายงานรายบุคคล ·
+         (3) ใบรับชำระที่ยกเลิกยังถูกนับในช่องชำระแล้ว</p>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="issues">จุดที่ระบบยังทำงานไม่ตรงที่คาด (ส่งต่อทีมพัฒนา)</h2>
+
+  <p class="small">รวบรวมจากการตรวจระบบระหว่างทำคู่มือ — ผู้ใช้ควรรู้ไว้เพื่อหลีกเลี่ยง รายละเอียดเชิงเทคนิคอยู่ใน <a href="03-reimbursement-tech.html">ภาคผนวก</a></p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>#</th><th>หน้าจอ</th><th>อาการ</th><th>ระหว่างนี้ทำอย่างไร</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>บันทึกเลื่อนรอบการเรียกเก็บ</td><td>ไฟล์ย้ายได้เฉพาะแถวแรก</td><td>ใช้เปลี่ยนรอบส่งเบิก</td></tr>
+      <tr><td>2</td><td>รายงานส่งบัญชี › นำเข้าส่งบัญชีแล้ว</td><td>ทำเครื่องหมายได้ ~7–8 แถวแรก</td><td>ตรวจรายงานหลังนำเข้า</td></tr>
+      <tr><td>3</td><td>บันทึกข้อมูลเรียกเก็บ (IPD)</td><td>บันทึกแล้วไม่รีเฟรช กดซ้ำได้ใบซ้ำ</td><td>ออกจากหน้าหลังบันทึก</td></tr>
+      <tr><td>4</td><td>บันทึกข้อมูลเรียกเก็บ (IPD)</td><td>บังคับเลข EDC แต่ไม่มีปุ่มขอเลข</td><td>พิมพ์เลขเอง</td></tr>
+      <tr><td>5</td><td>ตรวจสอบ/แก้ไขการเรียกเก็บ</td><td>บันทึกหัวใบล้างรหัสหน่วยงานต้นสังกัด · หลายช่องผูกผิด</td><td>แก้เฉพาะที่จำเป็น ตรวจผล</td></tr>
+      <tr><td>6</td><td>เปลี่ยนรอบส่งเบิก</td><td>ตัวเลือกรอบแสดงทุกสิทธิ ไม่มีเลขรอบ</td><td>ตรวจรอบหลังย้าย</td></tr>
+      <tr><td>7</td><td>ปิดสิทธิ · ส่งจองเคลมใหม่ · ปิดบัญชี</td><td>แจ้ง “สำเร็จ” แม้ไม่สำเร็จ</td><td>ดูสถานะจริงหลังทำ</td></tr>
+      <tr><td>8</td><td>Dashboard</td><td>การ์ด “เรียกเก็บไม่ผ่าน” เป็น 0 เสมอ</td><td>ดูแท็บผล REP</td></tr>
+      <tr><td>9</td><td>ลงบันทึกสถานะ (CSCD)</td><td>Export ไม่มีผลรายแถว · Status ไม่ถูกตรวจ</td><td>ดูผลบนจอ · ตรวจไฟล์ก่อน</td></tr>
+      <tr><td>10</td><td>ตรวจสอบรอบรับชำระ</td><td>ยกเลิกใบรับชำระแล้วยอดชำระแล้วไม่ลด</td><td>ตรวจยอดจาก Statement</td></tr>
+      <tr><td>11</td><td>ตรวจสอบการส่งเบิก › อัพเดตสถานะ</td><td>ใบ IPD ไม่ได้สถานะ</td><td>ตรวจที่ระบบ สปสช.</td></tr>
+      <tr><td>12</td><td>สรุปค่ารักษา (IPD)</td><td>ไม่ตรวจรหัสวินิจฉัยก่อนเรียกเก็บ</td><td>ตรวจเองก่อนส่ง</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="annex">สำหรับทีมพัฒนาและทีมทดสอบระบบ:
+     <a href="03-reimbursement-tech.html">ภาคผนวกเชิงเทคนิค — สถานะ รหัสอ้างอิง และการเชื่อมต่อระบบภายนอก</a></p>
+
+  <div class="footer">
+    <span><a href="02-finance.html">← การเงินผู้ป่วยนอก / ใน</a></span>
+    <span>ถัดไป: <a href="04-social-welfare.html">งานสังคมสงเคราะห์ →</a></span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

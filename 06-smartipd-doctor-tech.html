@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06 · Smart IPD — Doctor Module — HA.OS Module Flow</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="m6">
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <p class="crumb"><a href="index.html">หน้าแรก</a> › Smart IPD › 06 Doctor Module</p>
+
+  <div class="page-head">
+    <h1>06 · Smart IPD — Doctor Module</h1>
+    <p>Smart IPD คือแอปแยกต่างหาก (Angular 19 standalone + .NET 9) ที่ออกแบบให้แพทย์ใช้บน tablet ข้างเตียง
+       ตัว backend ทำหน้าที่เป็น <b>BFF (Backend for Frontend)</b> — ไม่มีฐานข้อมูลเวชระเบียนของตัวเอง
+       แต่เรียกต่อไปยัง HA.OS WebAPI ผ่าน Kiota-generated client แล้วจัดรูปข้อมูลให้เหมาะกับหน้าจอ</p>
+  </div>
+
+  <div class="toc">
+    <b>หัวข้อในหน้านี้</b>
+    <ol>
+      <li><a href="#arch">สถาปัตยกรรม &amp; การรันระบบ</a></li>
+      <li><a href="#login">ขั้นที่ 1 — Login &amp; เลือก Ward</a></li>
+      <li><a href="#list">ขั้นที่ 2 — รายชื่อผู้ป่วยของแพทย์</a></li>
+      <li><a href="#admission">ขั้นที่ 3 — หน้า Admission Hub</a></li>
+      <li><a href="#note">ขั้นที่ 4 — บันทึกการตรวจ / Progress Note</a></li>
+      <li><a href="#order">ขั้นที่ 5 — สั่ง Order</a></li>
+      <li><a href="#med">ขั้นที่ 6 — สั่งยา (Medication Order)</a></li>
+      <li><a href="#recon">ขั้นที่ 7 — Med Reconcile</a></li>
+      <li><a href="#discharge">ขั้นที่ 8 — Discharge</a></li>
+      <li><a href="#manage">การจัดการผู้ป่วย</a></li>
+      <li><a href="#api">API Reference</a></li>
+      <li><a href="#pitfall">ข้อควรระวัง</a></li>
+    </ol>
+  </div>
+
+  <div class="roles">
+    <span class="role"><b>Role:</b> <code>Doctor</code> (HA.OS UserType = <code>M</code>, <code>D</code>, <code>E</code>)</span>
+    <span class="role"><b>Frontend:</b> <code>http://localhost:4200</code></span>
+    <span class="role"><b>Backend:</b> <code>http://localhost:5098</code></span>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="arch">สถาปัตยกรรม &amp; การรันระบบ</h2>
+
+  <ul class="flow">
+    <li><b>Angular 19</b><span>standalone components</span></li>
+    <li><b>SmartIPD API</b><span>.NET 9 · BFF</span></li>
+    <li><b>HaosApiClient</b><span>Kiota generated</span></li>
+    <li class="is-lis"><b>HA.OS WebAPI</b><span>ต้นทางข้อมูลจริง</span></li>
+  </ul>
+
+  <div class="kv">
+    <dt>โครงสร้างโปรเจกต์</dt>
+    <dd><code>src/frontend</code> (Angular) · <code>src/backend</code> (Clean Architecture: Domain / Application / Infrastructure / WebAPI)
+        · <code>HAOS.SmartIPD.Libs.HaosClient</code> (client ไปยัง HA.OS)</dd>
+    <dt>คำสั่งรัน</dt>
+    <dd><code>make install</code> → <code>make dev</code> (ทั้งสองฝั่ง) หรือ <code>make frontend</code> / <code>make backend</code></dd>
+    <dt>Config หลัก</dt>
+    <dd><code>HaosApi:BaseUrl</code> (ปลายทาง HA.OS), <code>JwtSettings</code> (token ของ Smart IPD เอง),
+        <code>PacsSettings:BaseUrl</code> (viewer ภาพ), <code>Cache</code> (Memory/Redis), <code>LLMSettings</code> (ผู้ช่วย AI)</dd>
+    <dt>ฐานข้อมูลของตัวเอง</dt>
+    <dd><code>haos_smartipd</code> เก็บเฉพาะ user/refresh token ของแอป — ข้อมูลเวชระเบียนอยู่ที่ HA.OS ทั้งหมด</dd>
+  </div>
+
+  <div class="note">
+    <b class="note__label">การเชื่อมกับ HA.OS</b>
+    <p>โฟลเดอร์ <code>Libs.HaosClient/Api/</code> มี wrapper ครบทุก controller ของ HA.OS ที่ Smart IPD ใช้
+       เช่น <code>Admit</code>, <code>Order</code>, <code>Finance</code>, <code>Lab</code>, <code>XRay</code>,
+       <code>IpdDoctorNotes</code>, <code>IpdOrderPlan</code>, <code>IpdMedReconcile</code>, <code>VitalSigns</code>, <code>Ward</code>
+       — เมื่อ HA.OS เปลี่ยน API สัญญา (contract) ต้อง regenerate client ตัวนี้</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="login">ขั้นที่ 1 — Login &amp; เลือก Ward</h2>
+
+  <ol class="steps">
+    <li>
+      <b>เข้าหน้า Login</b>
+      <p><code>/auth/login</code> · <code>POST /api/Auth/login</code> —
+         ใช้ username/password เดียวกับ HA.OS (ระบบไปยืนยันกับ HA.OS แล้วออก JWT ของ Smart IPD เอง)</p>
+      <p class="small">มีฟีเจอร์ “จำบัญชี” (<code>RememberedAccountsService</code>) ซึ่งจำ Ward/ห้องยาที่เลือกล่าสุดด้วย</p>
+    </li>
+    <li>
+      <b>ระบบ map บทบาทจาก UserType ของ HA.OS</b>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>HA.OS UserType</th><th>Smart IPD Role</th><th>เข้าโมดูล</th></tr></thead>
+        <tbody>
+          <tr><td><code>M</code> แพทย์ · <code>D</code> ทันตแพทย์ · <code>E</code> แพทย์ภายนอก</td><td><code>Doctor</code></td><td><code>/patients/doctor-patients</code></td></tr>
+          <tr><td><code>N</code> พยาบาล</td><td><code>Nurse</code></td><td><code>/patients</code></td></tr>
+          <tr><td><code>P</code> เภสัชกร</td><td><code>Pharmacist</code></td><td><code>/pharmacist</code> (ถูกบังคับ redirect)</td></tr>
+          <tr><td>อื่น ๆ</td><td><code>User</code></td><td>สิทธิจำกัด</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="small">โค้ด: <code>UserTypeMapper.MapHaosUserTypeToRole()</code> และ <code>roleRedirectGuard</code></p>
+    </li>
+    <li>
+      <b>เลือก Ward</b>
+      <p><code>/auth/ward-selection</code> — บังคับโดย <code>wardSelectionGuard</code>
+         ทุกหน้าจอหลังจากนี้จะกรองข้อมูลตาม Ward ที่เลือก เปลี่ยน Ward ได้ตลอดจากแถบด้านบน</p>
+    </li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="list">ขั้นที่ 2 — รายชื่อผู้ป่วยของแพทย์</h2>
+
+  <p><code>/patients/doctor-patients</code> · <code>DoctorPatientListComponent</code></p>
+
+  <ul>
+    <li>แสดงผู้ป่วยใน Ward ที่เลือก โดยเน้นผู้ป่วยที่แพทย์คนนี้เป็นเจ้าของไข้/แพทย์ร่วม</li>
+    <li>แต่ละการ์ดแสดง: HN/AN, ชื่อ, อายุ, เตียง, การวินิจฉัย, Tag ผู้ป่วย, และ badge งานค้าง</li>
+    <li>มีทางเลือกเข้าผู้ป่วยด้วย <b>สแกน QR Code</b> ที่ป้ายข้อมือ — <code>/patients/scan-qr</code></li>
+  </ul>
+
+  <h3>หน้าจอช่วยงานอื่น</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หน้าจอ</th><th>เส้นทาง</th><th>ใช้ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td>Work List</td><td><code>/patients/work-list</code></td><td>รายการงานที่ต้องทำ รวมทุกผู้ป่วย</td></tr>
+      <tr><td>ภาพรวมงานประจำวัน</td><td><code>/patients/daily-overview</code></td><td>สรุปภาพรวมทั้ง Ward · <code>GET /api/OrderPlan/ward-daily-overview</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="admission">ขั้นที่ 3 — หน้า Admission Hub</h2>
+
+  <p><code>/patients/admission/:an</code> · <code>PatientAdmissionComponent</code> — ศูนย์กลางของผู้ป่วย 1 ราย</p>
+
+  <h3>แท็บข้อมูล (สำหรับแพทย์)</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>#</th><th>แท็บ</th><th>เนื้อหา</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><b>Order Summary</b></td><td>สรุป Order ที่ active ทั้งหมดของผู้ป่วย (ยา/เวชภัณฑ์/Lab/X-ray/Note)</td></tr>
+      <tr><td>2</td><td><b>Problem List</b></td><td>รายการปัญหาของผู้ป่วย — <b>แท็บนี้พยาบาลไม่เห็น</b> (ถูกกรองออกเมื่อ role = Nurse)</td></tr>
+      <tr><td>3</td><td><b>Laboratory</b></td><td>ผล Lab พร้อมกราฟแนวโน้ม</td></tr>
+      <tr><td>4</td><td><b>Imaging</b></td><td>ผล X-ray/ภาพ เชื่อมไป PACS viewer (<code>PacsSettings:BaseUrl</code>)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>เมนู 3 ชุดบนหน้านี้</h3>
+  <div class="grid grid--3">
+    <div class="card">
+      <h4>จัดการข้อมูล</h4>
+      <p class="small">ย้าย Ward · ย้ายเตียง · Assign แพทย์/แพทย์ร่วม · พยาบาลเจ้าของไข้ · เพิ่ม Note ·
+         Med Reconcile (Admit / Discharge)</p>
+    </div>
+    <div class="card">
+      <h4>บันทึก</h4>
+      <p class="small">Progress Note · Nursing Progress Note (แพทย์ดูอย่างเดียว) ·
+         Med Reconcile Admit / Discharge</p>
+    </div>
+    <div class="card">
+      <h4>New Order</h4>
+      <p class="small">แบ่ง 3 กลุ่ม: One Day · Continuation · Home Medication (ดูหัวข้อถัดไป)</p>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="note">ขั้นที่ 4 — บันทึกการตรวจ / Progress Note</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หน้าจอ</th><th>เส้นทาง</th><th>หมายเหตุ</th></tr></thead>
+    <tbody>
+      <tr><td>Progress Note (ประวัติการตรวจ)</td><td><code>admission/:an/examination-history</code></td><td>ไทม์ไลน์บันทึกการตรวจย้อนหลัง</td></tr>
+      <tr><td>บันทึกอาการคนไข้ (สร้างใหม่)</td><td><code>admission/:an/diagnostic-form</code></td><td rowspan="2"><code>POST/PUT /api/DoctorNotes</code></td></tr>
+      <tr><td>แก้ไขการตรวจ</td><td><code>admission/:an/diagnostic-form/:noteId</code></td></tr>
+      <tr><td>Nursing Progress Note (ดูอย่างเดียว)</td><td><code>admission/:an/nursing-progress-note</code></td><td>แพทย์ดูบันทึกของพยาบาล</td></tr>
+      <tr><td>Problem List</td><td>แท็บในหน้า Admission</td><td><code>DoctorProblemController</code>, <code>FocusItemsController</code></td></tr>
+      <tr><td>Observation Chart</td><td><code>admission/:an/vital-signs</code></td><td><code>GET /api/VitalSigns/chart/{an}</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <b class="note__label">ผู้ช่วย AI</b>
+    <p>มี controller กลุ่ม <code>AI/</code> และ <code>LLMSettings</code> ใน config รองรับผู้ช่วยสรุป/ช่วยเขียนบันทึก
+       (ตั้ง Provider เป็น OpenRouter / DeepSeek / Claude ได้) — เป็นฟีเจอร์เสริม ปิดได้ด้วยการไม่ตั้งค่า API key</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="order">ขั้นที่ 5 — สั่ง Order</h2>
+
+  <p>เมนู New Order แบ่งตามลักษณะคำสั่ง โดยส่ง query parameter <code>type</code> ไปกับ route</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>กลุ่ม</th><th>รายการที่สั่งได้</th><th>เส้นทาง + query</th></tr></thead>
+    <tbody>
+      <tr>
+        <td rowspan="5"><b>Order for One Day</b><br><span class="small">คำสั่งเฉพาะวันนี้</span></td>
+        <td>ยา</td><td><code>medication-order?type=OneDay</code></td>
+      </tr>
+      <tr><td>เวชภัณฑ์</td><td><code>order?type=OneDay</code></td></tr>
+      <tr><td>Lab</td><td><code>lab-order?type=OneDay</code></td></tr>
+      <tr><td>X-ray</td><td><code>xray-order?type=OneDay</code></td></tr>
+      <tr><td>Note Order</td><td>เปิด modal <code>DoctorOrderNoteModalComponent</code></td></tr>
+      <tr>
+        <td rowspan="2"><b>Order for Continuation</b><br><span class="small">คำสั่งต่อเนื่องรายวัน</span></td>
+        <td>ยา</td><td><code>medication-order?type=Continue</code></td>
+      </tr>
+      <tr><td>Note Order</td><td>modal (type = Continue)</td></tr>
+      <tr>
+        <td><b>Order for Home Medication</b><br><span class="small">ยากลับบ้าน</span></td>
+        <td>Home Med</td><td><code>medication-order?type=HomeMed</code></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Flow การสั่ง Lab (ตัวอย่าง)</h3>
+  <ol class="steps steps--blue">
+    <li><b>เปิดหน้ารายการ Lab ปัจจุบัน</b><p><code>admission/:an/lab-order</code></p></li>
+    <li><b>กดเพิ่มรายการ</b><p><code>admission/:an/lab-order/add</code> — ค้นหา Lab จาก master data</p></li>
+    <li><b>เลือกรายการ + ระบุเหตุผล/ความเร่งด่วน</b></li>
+    <li><b>ยืนยัน</b><p><code>POST /api/Order/lab</code> → BFF ส่งต่อไป HA.OS → สร้าง <code>TB_FINANCES</code> ประเภท <code>L</code></p>
+      <p class="small">ถ้ารายการนั้นอยู่ในกลุ่มธนาคารเลือด (<code>LABGROUP='01'</code>) จะไปสร้างใบสั่ง BBIS ต่อ —
+         ดู <a href="01-blood-bank-tech.html">โมดูล 01</a></p></li>
+  </ol>
+
+  <p>X-ray และเวชภัณฑ์ใช้รูปแบบเดียวกันผ่าน <code>POST /api/Order/xray</code> และ <code>POST /api/Order/general</code></p>
+
+  <h3>ค่าใช้จ่ายอื่น ๆ</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หน้าจอ</th><th>เส้นทาง</th><th>API</th></tr></thead>
+    <tbody>
+      <tr><td>บันทึกค่าใช้จ่าย</td><td><code>admission/:an/other-expenses</code></td><td><code>GET /api/Order/expense-summary/{an}</code></td></tr>
+      <tr><td>เพิ่มค่าใช้จ่าย / รายการ</td><td><code>…/other-expenses/add</code> · <code>…/add/items</code></td><td><code>POST /api/Order/general</code></td></tr>
+      <tr><td>ลบรายการ</td><td>ปุ่มในตาราง</td><td><code>DELETE /api/Order/expense-item/{financeId}</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="med">ขั้นที่ 6 — สั่งยา (Medication Order)</h2>
+
+  <p>เป็นส่วนที่ซับซ้อนที่สุดของ Doctor Module เพราะมีการตรวจสอบความปลอดภัยหลายชั้น</p>
+
+  <ol class="steps">
+    <li>
+      <b>เปิดหน้ารายการยา</b>
+      <p><code>admission/:an/medication-order?type={OneDay|Continue|HomeMed}</code></p>
+    </li>
+    <li>
+      <b>ค้นหายา</b>
+      <p><code>GET /api/Medication/search</code> หรือ <code>search-advanced</code>
+         · ดูรายละเอียด <code>GET /api/Medication/{drugCode}</code>
+         · หมวดหมู่/บัญชียา <code>categories</code>, <code>formularies</code></p>
+    </li>
+    <li>
+      <b>ใช้สูตร/Template ช่วย</b>
+      <p><code>admission/:an/medication-templates</code>
+         · <code>GET /api/Medication/templates</code> · <code>templates/{id}/detail</code>
+         · <code>drug-formulas</code> · <code>favorites</code></p>
+    </li>
+    <li>
+      <b>กรอกรายละเอียดการสั่ง</b>
+      <p><code>admission/:an/medication-order/add</code> — ขนาด, วิธีใช้, ความถี่, ระยะเวลา, หมายเหตุ</p>
+    </li>
+    <li>
+      <b>ระบบตรวจสอบความปลอดภัยอัตโนมัติ</b>
+      <p><code>POST /api/MedicationOrder/validate</code> — คืนธงเตือนหลายชนิด</p>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>ธงเตือน</th><th>ความหมาย</th></tr></thead>
+        <tbody>
+          <tr><td><code>isDrugAllergy</code></td><td>ผู้ป่วยแพ้ยานี้</td></tr>
+          <tr><td><code>isDuplicateDrug</code></td><td>ยาซ้ำกับที่สั่งอยู่</td></tr>
+          <tr><td><code>isDrugDrugInteraction</code></td><td>ปฏิกิริยาระหว่างยา · <code>GET /api/Medication/{drugCode}/interactions</code></td></tr>
+          <tr><td><code>isDrugDiseaseInteraction</code></td><td>ปฏิกิริยายา-โรค</td></tr>
+          <tr><td><code>isDrugLabInteraction</code></td><td>ปฏิกิริยายา-ผล Lab</td></tr>
+          <tr><td><code>isNonEssentialDrug</code></td><td>ยานอกบัญชี (NED)</td></tr>
+          <tr><td><code>isFormDue</code></td><td>ต้องกรอกแบบฟอร์ม DUE ก่อนสั่ง</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </li>
+    <li>
+      <b>กรอกฟอร์ม DUE (ถ้าถูกร้องขอ)</b>
+      <p><code>GET /api/Medication/due-templates/{dueTemplateId}</code> — คำตอบจะถูกส่งไปกับ order
+         และเภสัชกรจะเห็นคำตอบชุดนี้ตอนตรวจสอบ (<code>dueAnswerList</code>)</p>
+      <p class="small">มีเงื่อนไขการสั่งเฉพาะยาบางตัว: <code>GET /api/Medication/{drugCode}/prescribing-conditions</code></p>
+    </li>
+    <li>
+      <b>ยืนยันสั่ง</b>
+      <p><code>POST /api/MedicationOrder</code> (แก้ไข <code>PUT /{orderId}</code> · ยกเลิก <code>DELETE /{orderId}</code>)</p>
+    </li>
+    <li>
+      <b>ติดตามผล</b>
+      <p><code>GET /api/MedicationOrder/history</code> · <code>GET /api/MedicationOrder/{patientId}/dispensing-history</code>
+         · หน้า <code>admission/:an/medication-review</code> (Med Review) และ <code>admission/:an/order-history</code></p>
+    </li>
+  </ol>
+
+  <h3>Hold / Off ยา</h3>
+  <p>แพทย์สามารถสั่ง <b>Hold</b> (พักการให้ยาชั่วคราว) หรือ <b>Off</b> (หยุดยา) ได้
+     ข้อมูลถูกเก็บที่ <code>TB_IPD_ORDER_HOLD_LOGS</code> และ <code>TB_IPD_ORDER_NOTE_DETAILS</code>
+     ฝั่งเภสัชกรจะเห็นธง <code>isOnHold</code> / <code>isOff</code> พร้อมเหตุผล และต้องกด “รับทราบ”
+     (ดู <a href="08-smartipd-pharmacist-tech.html">โมดูล 07</a>)</p>
+
+  <!-- ================================================================== -->
+  <h2 id="recon">ขั้นที่ 7 — Med Reconcile</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หน้าจอ</th><th>เส้นทาง</th><th>ใช้เมื่อ</th></tr></thead>
+    <tbody>
+      <tr><td>Med Reconcile แรกรับ</td><td><code>admission/:an/med-reconcile-admit</code></td><td>ตอนรับ Admit — สอบทานยาเดิมที่ผู้ป่วยใช้จากบ้าน</td></tr>
+      <tr><td>Med Reconcile Discharge</td><td><code>admission/:an/med-reconcile-discharge</code></td><td>ตอนจำหน่าย — สอบทานยากลับบ้านเทียบกับยาเดิม</td></tr>
+      <tr><td>เพิ่มรายการใหม่</td><td><code>…/item</code></td><td>เพิ่มยาที่ไม่มีในระบบ</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">Controller: <code>MedReconcileController</code> — เภสัชกรก็ใช้หน้าจอชุดเดียวกันผ่าน
+     <code>/pharmacist/med-reconcile/:an</code></p>
+
+  <!-- ================================================================== -->
+  <h2 id="discharge">ขั้นที่ 8 — จำหน่ายผู้ป่วย</h2>
+
+  <ol class="steps steps--green">
+    <li><b>สั่ง Home Medication</b><p><code>medication-order?type=HomeMed</code></p></li>
+    <li><b>ทำ Med Reconcile Discharge</b></li>
+    <li><b>เขียน Discharge Summary</b><p><code>admission/:an/discharge-summary</code> · <code>DischargeSummaryController</code></p></li>
+    <li><b>ออกใบรับรองแพทย์ (ถ้าต้องการ)</b><p><code>admission/:an/medical-certificate</code> · <code>MedicalCertificateController</code></p></li>
+    <li><b>ทำนัดหมายครั้งถัดไป</b><p><code>admission/:an/appointment</code> · <code>AppointmentController</code></p></li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="manage">การจัดการผู้ป่วย (เมนูจัดการข้อมูล)</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมนู</th><th>ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td>ย้าย Ward</td><td>ย้ายผู้ป่วยไปหอผู้ป่วยอื่น · <code>GET /api/HisAdapter/ward-transfer-history/{an}</code> ดูประวัติ</td></tr>
+      <tr><td>ย้ายเตียง</td><td>เปลี่ยนเตียงภายใน Ward เดิม (มีผลกับค่าห้อง)</td></tr>
+      <tr><td>Assign แพทย์/แพทย์ร่วม</td><td>กำหนดแพทย์เจ้าของไข้และแพทย์ร่วม — มีผลกับรายการผู้ป่วยที่แต่ละคนเห็น</td></tr>
+      <tr><td>พยาบาลเจ้าของไข้</td><td>กำหนดพยาบาลผู้รับผิดชอบ</td></tr>
+      <tr><td>เพิ่ม Note</td><td>บันทึกสั้น ๆ ประกอบผู้ป่วย · <code>OrderNoteController</code></td></tr>
+      <tr><td>Patient Tag</td><td>ป้ายกำกับผู้ป่วย (เช่น ระวังตก, แยกโรค) · <code>PatientTagController</code></td></tr>
+      <tr><td>แพ้ยา / โรคประจำตัว</td><td><code>PatientDrugAllergyController</code> · <code>PatientUnderlyingDiseaseController</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="api">API Reference (Smart IPD Backend)</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Controller</th><th>Endpoint หลัก</th><th>ใช้ที่</th></tr></thead>
+    <tbody>
+      <tr><td><code>AuthController</code></td><td><code>POST /api/Auth/login</code> · <code>POST /api/Auth/refresh</code></td><td>เข้าสู่ระบบ</td></tr>
+      <tr><td><code>PatientController</code></td><td>ข้อมูลผู้ป่วย, รายการผู้ป่วย</td><td>Patient List / Admission</td></tr>
+      <tr><td><code>OrderController</code></td><td><code>POST /lab</code> · <code>/xray</code> · <code>/general</code> · <code>/medication</code><br><code>GET /expense-summary/{an}</code> · <code>DELETE /expense-item/{financeId}</code></td><td>สั่ง Order</td></tr>
+      <tr><td><code>MedicationController</code></td><td><code>search</code>, <code>search-advanced</code>, <code>{drugCode}</code>, <code>interactions</code>, <code>prescribing-conditions</code>, <code>categories</code>, <code>formularies</code>, <code>drug-formulas</code>, <code>templates</code>, <code>favorites</code>, <code>due-templates/{id}</code>, <code>generate-label</code></td><td>ค้น/ตรวจสอบยา</td></tr>
+      <tr><td><code>MedicationOrderController</code></td><td><code>POST /</code> · <code>PUT /{orderId}</code> · <code>DELETE /{orderId}</code> · <code>POST /validate</code> · <code>GET /history</code> · <code>GET /{patientId}/dispensing-history</code></td><td>สั่งยา</td></tr>
+      <tr><td><code>DoctorNotesController</code></td><td>CRUD บันทึกแพทย์</td><td>Progress Note</td></tr>
+      <tr><td><code>DoctorProblemController</code> · <code>FocusItemsController</code></td><td>Problem List</td><td>แท็บ Problem List</td></tr>
+      <tr><td><code>LabController</code> · <code>XrayController</code></td><td>ผล Lab / ภาพ</td><td>แท็บ Laboratory / Imaging</td></tr>
+      <tr><td><code>VitalSignsController</code></td><td><code>GET /</code>, <code>POST</code>, <code>PUT/DELETE /{recordId}</code>, <code>GET /chart/{an}</code></td><td>Observation Chart</td></tr>
+      <tr><td><code>MedReconcileController</code></td><td>Med Reconcile Admit / Discharge</td><td>Med Reconcile</td></tr>
+      <tr><td><code>DischargeSummaryController</code> · <code>MedicalCertificateController</code></td><td>เอกสารจำหน่าย</td><td>Discharge</td></tr>
+      <tr><td><code>HisAdapterController</code></td><td><code>GET /ward-transfer-history/{an}</code></td><td>ประวัติย้าย Ward</td></tr>
+      <tr><td><code>MasterDataController</code> · <code>IpdFaieMasterDataController</code></td><td>Master data</td><td>Dropdown ทั่วระบบ</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="pitfall">ข้อควรระวัง</h2>
+
+  <div class="grid grid--2">
+    <div class="card">
+      <h4>1. Smart IPD ไม่ใช่แหล่งข้อมูลจริง</h4>
+      <p>ข้อมูลทั้งหมดอยู่ที่ HA.OS — ถ้า HA.OS API ล่มหรือ contract เปลี่ยน Smart IPD จะพังทันที
+         ตรวจ log ของ <code>HaosApiClient</code> (ตั้ง LogLevel เป็น Debug ไว้แล้วใน config)</p>
+    </div>
+    <div class="card">
+      <h4>2. UserType ต้องถูกตั้งที่ HA.OS</h4>
+      <p>ถ้าแพทย์ถูกตั้ง UserType เป็นค่าอื่น จะได้ role <code>User</code> และเห็นหน้าจอไม่ครบ
+         แก้ที่เมนูผู้ดูแลระบบของ HA.OS</p>
+    </div>
+    <div class="card">
+      <h4>3. Ward selection มีผลกับทุกหน้าจอ</h4>
+      <p>รายการผู้ป่วยถูกกรองด้วย Ward ที่เลือก ถ้าหาผู้ป่วยไม่เจอให้ตรวจว่าเลือก Ward ถูกหรือยัง</p>
+    </div>
+    <div class="card">
+      <h4>4. Order type ส่งผ่าน query param</h4>
+      <p>เข้าหน้า <code>medication-order</code> โดยตรงโดยไม่มี <code>?type=</code>
+         อาจได้พฤติกรรมไม่ตรงกับที่ตั้งใจ — ควรเข้าจากเมนู New Order เสมอ</p>
+    </div>
+    <div class="card">
+      <h4>5. Validate ไม่บังคับหยุด</h4>
+      <p>ธงเตือนส่วนใหญ่เป็น “เตือน” ไม่ใช่ “ห้าม” — ยกเว้น DUE ที่ต้องกรอกก่อน
+         การตัดสินใจอยู่ที่แพทย์และจะถูกส่งต่อให้เภสัชกรตรวจซ้ำ</p>
+    </div>
+    <div class="card">
+      <h4>6. เอกสาร spec ในรีโป</h4>
+      <p>ดูรายละเอียดเพิ่มที่ <code>docs/SmartIPD-API-Spec.html</code>,
+         <code>docs/SmartIPD-HIS-Integration-Spec.html</code> และ
+         <code>docs/SmartIPD-HIS-Provider-API.openapi.yaml</code></p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><a href="05-admin-tech.html">← 05 งานผู้ดูแลระบบ</a></span>
+    <span>ถัดไป: <a href="07-smartipd-nurse-tech.html">07 Smart IPD Nurse →</a></span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

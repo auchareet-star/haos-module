@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 · ธนาคารเลือด (Blood Bank / BBIS) — HA.OS Module Flow</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="m1">
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <p class="crumb"><a href="index.html">หน้าแรก</a> › HA.OS หลัก › 01 ธนาคารเลือด</p>
+
+  <div class="page-head">
+    <h1>01 · ธนาคารเลือด (Blood Bank / BBIS)</h1>
+    <p>โมดูลนี้ทำหน้าที่เป็น “ตัวกลาง” ระหว่างงานตรวจรักษา (OPD/IPD) กับระบบ <b>BBIS/LIS ของธนาคารเลือด</b>
+       HA.OS ไม่ได้ทำ Cross-match เอง แต่เก็บใบสั่ง (Order Confirm) ไว้ให้ LIS มาดึงผ่าน API แล้วรับผล
+       Cross-match และการจ่ายถุงเลือดกลับมาบันทึกเป็นผล Lab + ค่าใช้จ่ายในระบบการเงิน</p>
+  </div>
+
+  <div class="toc">
+    <b>หัวข้อในหน้านี้</b>
+    <ol>
+      <li><a href="#prereq">สิ่งที่ต้องตั้งค่าก่อนใช้งาน</a></li>
+      <li><a href="#overview">ภาพรวม Flow</a></li>
+      <li><a href="#step1">ขั้นที่ 1 — เกิด Order จากงานตรวจรักษา</a></li>
+      <li><a href="#step2">ขั้นที่ 2 — รายชื่อผู้ป่วยตรวจ Lab</a></li>
+      <li><a href="#step3">ขั้นที่ 3 — Issue Blood &amp; Submit</a></li>
+      <li><a href="#step4">ขั้นที่ 4-6 — ฝั่ง LIS/BBIS</a></li>
+      <li><a href="#step7">ขั้นที่ 7 — ตรวจสอบผล Lab</a></li>
+      <li><a href="#state">State Machine</a></li>
+      <li><a href="#db">ตารางฐานข้อมูล</a></li>
+      <li><a href="#api">API Reference</a></li>
+      <li><a href="#simulate">การจำลอง Case แทน LIS</a></li>
+      <li><a href="#pitfall">ข้อควรระวัง / กับดัก</a></li>
+      <li><a href="#legacy">ช่องทาง Legacy (ไฟล์ ASTM)</a></li>
+    </ol>
+  </div>
+
+  <div class="roles">
+    <span class="role"><b>ผู้ใช้:</b> เจ้าหน้าที่ธนาคารเลือด (สิทธิ <code>LABORATORY</code>)</span>
+    <span class="role"><b>เมนู:</b> 12. งานห้องปฏิบัติการ › งานธนาคารเลือด [12.2]</span>
+    <span class="role"><b>WorkType:</b> <code>LAB</code></span>
+    <span class="role"><b>ระบบภายนอก:</b> BBIS / LIS</span>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="prereq">สิ่งที่ต้องตั้งค่าก่อนใช้งาน (Prerequisite)</h2>
+
+  <p>ถ้า 3 ข้อนี้ไม่ครบ ระบบจะ<b>ไม่สร้างใบสั่งธนาคารเลือดเลย</b> และหน้าจอ Dashboard จะว่างเปล่า
+     ซึ่งเป็นสาเหตุอันดับหนึ่งที่ทดสอบแล้ว “ไม่เห็นเคส”</p>
+
+  <ol class="steps">
+    <li>
+      <b>เปิด Flag ระดับโรงพยาบาล</b>
+      <p>ตาราง <code>TBM_HOSP_PARAMETERS</code> คอลัมน์ <code>IsBloodBankEnabled = 1</code>
+         (เพิ่มมาโดย migration <code>25690528070917_AddBloodBankAndDrugCenterFlagsToHospParameters</code>)
+         ตั้งค่าได้จากเมนู <b>งานผู้ดูแลระบบ › กำหนด Parameter</b></p>
+      <p class="small">โค้ดอ้างอิง: <code>FinanceService.cs</code> — <code>if (!hospParam.IsBloodBankEnabled) { continue; }</code></p>
+    </li>
+    <li>
+      <b>รหัสค่าใช้จ่าย (Expense) ต้องอยู่ในกลุ่ม Lab รหัส <code>01</code></b>
+      <p>ตาราง <code>TBM_EXPENSES</code> คอลัมน์ <code>LABGROUP = '01'</code> เท่านั้น
+         จึงจะถูกดักไปสร้างใบสั่งธนาคารเลือด (ตั้งค่าที่เมนู <b>รหัส Lab</b> / <b>รหัสค่าใช้จ่าย</b>)</p>
+      <p class="small">โค้ดอ้างอิง: <code>if (string.IsNullOrEmpty(expense.Labgroup) || expense.Labgroup != "01") { continue; }</code></p>
+    </li>
+    <li>
+      <b>รหัส Lab ต้องมีใน <code>TBM_LAB_TESTS</code> ที่คู่กับ ExpenseId เดียวกัน</b>
+      <p>ตอน LIS ส่งผล Cross-match กลับมา ระบบจะค้น <code>TBM_LAB_TESTS</code> ด้วยเงื่อนไข
+         <code>Code = testcode</code> <b>และ</b> <code>ExpenseId = ExpenseId ของ order item</code>
+         ถ้าหาไม่เจอ ผลจะถูกบันทึกใน BBIS แต่<b>จะไม่ขึ้นเป็นผล Lab ในระบบ HIS</b></p>
+    </li>
+  </ol>
+
+  <div class="note note--tip">
+    <b class="note__label">ตรวจสอบเร็ว ๆ</b>
+    <pre class="code"><code><span class="c">-- 1) Flag เปิดหรือยัง</span>
+<span class="k">SELECT</span> IsBloodBankEnabled, BbReqPath <span class="k">FROM</span> TBM_HOSP_PARAMETERS;
+
+<span class="c">-- 2) มี Expense ที่เข้าเงื่อนไขธนาคารเลือดกี่รายการ</span>
+<span class="k">SELECT</span> EXPENSE_ID, CODE, NAME, LABGROUP, LAB_MEANING
+<span class="k">FROM</span>   TBM_EXPENSES <span class="k">WHERE</span> LABGROUP = <span class="s">'01'</span>;
+
+<span class="c">-- 3) Expense เหล่านั้นมี LAB_TEST คู่กันครบไหม</span>
+<span class="k">SELECT</span> e.CODE, e.NAME, t.TEST_ID
+<span class="k">FROM</span>   TBM_EXPENSES e
+<span class="k">LEFT JOIN</span> TBM_LAB_TESTS t <span class="k">ON</span> t.EXPENSE_ID = e.EXPENSE_ID <span class="k">AND</span> t.CODE = e.CODE
+<span class="k">WHERE</span>  e.LABGROUP = <span class="s">'01'</span>;</code></pre>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="overview">ภาพรวม Flow</h2>
+
+  <ul class="flow">
+    <li><b>1. สั่ง Lab</b><span>OPD/IPD/Ward</span></li>
+    <li><b>2. Order Confirm</b><span>PENDING</span></li>
+    <li><b>3. Issue Blood</b><span>CONFIRMED</span></li>
+    <li class="is-lis"><b>4. LIS ดึง Order</b><span>→ APPROVED</span></li>
+    <li class="is-lis"><b>5. ส่งผล X-match</b><span>ผล Lab</span></li>
+    <li class="is-lis"><b>6. แจ้งจ่ายถุง</b><span>+ ค่าใช้จ่าย</span></li>
+    <li class="is-done"><b>7. ตรวจสอบผล</b><span>COMPLETED</span></li>
+  </ul>
+
+  <div class="grid grid--2">
+    <div class="card">
+      <h4>ฝั่ง HA.OS ทำอะไร</h4>
+      <ul>
+        <li>ดักรายการ Lab กลุ่ม <code>01</code> ตอนบันทึก Order → สร้างใบสั่งธนาคารเลือด</li>
+        <li>ให้เจ้าหน้าที่ยืนยัน Priority + วันที่ใช้เลือด แล้ว Submit</li>
+        <li>เปิด API ให้ LIS ดึงและส่งผลกลับ (auth ด้วย PersonalToken)</li>
+        <li>แปลงผล/การจ่ายถุงเลือด → <code>TB_LAB_RESULTS</code> + <code>TB_FINANCES</code></li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>ฝั่ง LIS/BBIS ทำอะไร</h4>
+      <ul>
+        <li>Poll <code>GET /api/BloodBank/orders/{orderNumber}</code> ตามเลข Order</li>
+        <li>ทำ Cross-match แล้ว <code>POST /api/BloodBank/cross-matches</code></li>
+        <li>จ่ายถุงเลือดแล้ว <code>POST /api/BloodBank/blood-issues</code></li>
+      </ul>
+      <p class="small">ทั้ง 3 endpoint อยู่ใต้ <code>BloodBankApiServiceController</code>
+         ซึ่งใช้ <code>[CustomApiServiceAuthorize]</code> — ต้องส่ง header <code>PersonalToken</code></p>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="step1">ขั้นที่ 1 — เกิด Order จากงานตรวจรักษา</h2>
+
+  <p>ผู้สั่ง Lab (แพทย์ห้องตรวจ / พยาบาล Ward / งานการเงิน–บันทึกค่าใช้จ่ายที่ไม่ใช่ยา) บันทึกรายการ Lab
+     ที่อยู่ในกลุ่มธนาคารเลือด ระบบจะทำงานใน <code>FinanceService</code> ดังนี้</p>
+
+  <ol class="steps steps--blue">
+    <li>
+      <b>สร้างแถวการเงินตามปกติ</b>
+      <p>เขียน <code>TB_FINANCES</code> 1 แถวต่อ 1 รายการ Lab (มี <code>ORDER_ID</code> ร่วมกันทั้งใบสั่ง)</p>
+    </li>
+    <li>
+      <b>ตรวจ Flag + Labgroup</b>
+      <p>ถ้า <code>IsBloodBankEnabled</code> เป็นเท็จ หรือ <code>Expense.Labgroup != '01'</code> → ข้าม ไม่สร้าง BBIS</p>
+    </li>
+    <li>
+      <b>สร้าง / ใช้ซ้ำ ใบสั่งธนาคารเลือด</b>
+      <p>ค้น <code>TB_BBIS_ORDER_CONFIRM</code> ด้วย <code>OrderNumber = TB_FINANCES.ORDER_ID</code>
+         ถ้ายังไม่มีก็สร้างใหม่ พร้อม snapshot ข้อมูลผู้ป่วย (HN, AN, VN, ชื่อ-สกุล, เพศ, วันเกิด, สิทธิ, Ward)
+         และตั้ง <code>ConfirmStatus = PENDING</code></p>
+      <p class="small">หมายเหตุ: 1 ใบสั่ง (OrderId) = 1 แถว Order Confirm และมีได้หลาย Item</p>
+    </li>
+    <li>
+      <b>เพิ่มรายการ Item</b>
+      <p>เขียน <code>TB_BBIS_ORDER_CONFIRM_ITEM</code> โดยคัดลอกทั้งข้อมูล Lab (TestCode/TestName/Qty/Volume)
+         และข้อมูลเงิน (Price, Amount, Claim, Copay, Discount, Payment, Reminburse, Cost) จาก <code>TB_FINANCES</code></p>
+    </li>
+    <li>
+      <b>(กรณี Auto Accept) ยิงไฟล์ให้ LIS แบบเดิม</b>
+      <p>ถ้า <code>Expense.LabMeaning = 'BB'</code> ระบบจะเรียก <code>MlabService.BloodBankRequest(orderId)</code>
+         ซึ่งเขียนไฟล์ ASTM <code>{OrderId}.bld</code> ลง path <code>TBM_HOSP_PARAMETERS.BbReqPath</code>
+         (ดู <a href="#legacy">ช่องทาง Legacy</a>)</p>
+    </li>
+  </ol>
+
+  <div class="note note--warn">
+    <b class="note__label">แยกให้ชัด</b>
+    <p><code>LABGROUP = '01'</code> คุมการสร้าง <b>ใบสั่งใน BBIS ใหม่</b> (ตาราง TB_BBIS_*) ส่วน
+       <code>LAB_MEANING = 'BB'</code> คุมการเขียน <b>ไฟล์ ASTM แบบเดิม</b> — เป็นคนละเส้นทาง
+       ในการทดสอบ Flow ใหม่ให้สนใจ <code>LABGROUP</code> เป็นหลัก</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="step2">ขั้นที่ 2 — หน้า “รายชื่อผู้ป่วยตรวจ Lab”</h2>
+
+  <p><b>เส้นทาง:</b> <code>/blood-bank/dashboard</code> · Component <code>BloodBankDashboardComponent</code></p>
+
+  <ol class="steps">
+    <li>
+      <b>เข้าเมนู 12.2</b>
+      <p>Sidebar เปลี่ยนเป็นเมนูย่อยของธนาคารเลือด: “รายชื่อผู้ป่วยตรวจ Lab” และ “ตรวจสอบผล Lab”</p>
+    </li>
+    <li>
+      <b>ระบบโหลดรายการของ “วันที่” ที่เลือก</b>
+      <p><code>POST /api/BloodBank/orders</code> ด้วย body <code>{ orderDate, orderId?, hn?, an?, status? }</code>
+         ค่าเริ่มต้นคือวันนี้ (ช่วง 00:00:00 – 23:59:59 ของ <code>ORDER_DATE_TIME</code>)</p>
+    </li>
+    <li>
+      <b>อ่านการ์ดสรุปด้านบน</b>
+      <p>ระบบคืนตัวนับมาให้กดกรองได้ทันที</p>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>ฟิลด์</th><th>ความหมาย</th><th>เงื่อนไข</th></tr></thead>
+        <tbody>
+          <tr><td><code>Total</code></td><td>ใบสั่งทั้งหมดของวัน</td><td>—</td></tr>
+          <tr><td><code>PendingTotal</code></td><td>รอยืนยัน</td><td><span class="pill pill--gray">PENDING</span></td></tr>
+          <tr><td><code>ConfirmedTotal</code></td><td>ยืนยันแล้ว รอ LIS ดึง</td><td><span class="pill pill--blue">CONFIRMED</span></td></tr>
+          <tr><td><code>ApproveTotal</code></td><td>LIS ดึงไปแล้ว</td><td><span class="pill pill--purple">APPROVED</span></td></tr>
+          <tr><td><code>EmergencyTotal</code></td><td>จำนวน <b>Item</b> ที่ด่วน</td><td>Priority = <code>STAT</code> หรือ <code>PRE_OPERATION</code></td></tr>
+          <tr><td><code>NormalTotal</code></td><td>จำนวน <b>Item</b> ปกติ</td><td>Priority = <code>ROUTINE</code></td></tr>
+          <tr><td><code>OpdTotal</code> / <code>IpdtTotal</code></td><td>แยก OPD / IPD</td><td><code>OpdIpd = 'O' / 'I'</code></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </li>
+    <li>
+      <b>ค้นหา</b>
+      <p>ช่อง Order No. / HN / AN — ค้น Order No. เป็นการกรองฝั่ง Client (<code>filterOrderId()</code>)
+         ส่วนการกดกรองสถานะจะยิง API ใหม่ทุกครั้ง</p>
+    </li>
+    <li>
+      <b>คลิกเลือกผู้ป่วย 1 ราย</b>
+      <p><code>GET /api/BloodBank/orders/{orderNumber}/items</code> → แสดงรายละเอียดผู้ป่วย (รูป, อายุ, สิทธิ, เบอร์โทร)
+         และรายการ Lab ที่ <b>จัดกลุ่มตาม Lab Group</b> (join <code>TBM_LAB_GROUPS</code> ผ่าน <code>TBM_EXPENSES.LABGROUP</code>)
+         พร้อมยอดเงินรายบรรทัด</p>
+    </li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="step3">ขั้นที่ 3 — Issue Blood &amp; Submit</h2>
+
+  <p>เป็นขั้นที่เจ้าหน้าที่ธนาคารเลือด “ยืนยันใบสั่ง” ก่อนปล่อยให้ LIS ดึงไปทำงาน</p>
+
+  <ol class="steps">
+    <li>
+      <b>กดปุ่ม Issue Blood</b>
+      <p><code>GET /api/BloodBank/orders/{orderNumber}/issue</code> → หน้าจอเปลี่ยนเป็น <code>pageState = 'issue-blood'</code>
+         พร้อมสร้างฟอร์ม (FormArray) 1 แถวต่อ 1 Item</p>
+    </li>
+    <li>
+      <b>กำหนด Priority และวันที่ใช้เลือด รายบรรทัด</b>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>ตัวเลือกบนจอ</th><th>ค่าที่บันทึก</th><th>ผลต่อการแสดงผล</th></tr></thead>
+        <tbody>
+          <tr><td>Routine</td><td><code>ROUTINE</code></td><td>เข้ากลุ่ม “ปกติ” (<code>issueItemsRoutine</code>)</td></tr>
+          <tr><td>STAT</td><td><code>STAT</code></td><td>เข้ากลุ่ม “ด่วน” (<code>issueItemsUrgent</code>)</td></tr>
+          <tr><td>Pre-operation</td><td><code>PRE_OPERATION</code></td><td>เข้ากลุ่ม “ด่วน”</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>ทั้ง <code>useDate</code> และ <code>priority</code> เป็น <b>required</b> ทั้งคู่ในฟอร์ม</p>
+    </li>
+    <li>
+      <b>กดบันทึก (ยังไม่ Submit)</b>
+      <p><code>PUT /api/BloodBank/orders/{orderNumber}/issue</code> — อัปเดต <code>Priority</code>, <code>UseDate</code>
+         และประทับ <code>UserModified</code> / <code>DateModified</code></p>
+      <div class="note note--danger">
+        <b class="note__label">พฤติกรรมที่ต้องรู้</b>
+        <p><code>UpdateOrderConfirmItems</code> จะ <b>ลบ Item ที่ไม่ได้ส่งมาใน request ทิ้ง</b>
+           (<code>itemsToRemove</code> = item ที่ Code ไม่อยู่ใน request) ดังนั้นการเรียก API นี้เองต้อง<b>ส่ง Item ครบทุกบรรทัดเสมอ</b>
+           มิฉะนั้นรายการที่หายไปจะถูกลบออกจากใบสั่ง</p>
+      </div>
+    </li>
+    <li>
+      <b>ติ๊กยืนยัน แล้วกด Submit</b>
+      <p>หน้าจอบังคับติ๊ก <code>confirmChecked</code> ก่อน (กล่อง <code>showConfirmBBIS</code>)
+         จากนั้น <code>POST /api/BloodBank/orders/{orderNumber}/submit</code></p>
+      <p>ผลที่เกิดขึ้นใน DB:</p>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>ตาราง</th><th>คอลัมน์</th><th>ค่าใหม่</th></tr></thead>
+        <tbody>
+          <tr><td rowspan="2">TB_BBIS_ORDER_CONFIRM</td><td><code>ConfirmStatus</code></td><td><span class="pill pill--blue">CONFIRMED</span></td></tr>
+          <tr><td><code>OrderStatus</code></td><td><span class="pill pill--amber">INPROGRESS</span></td></tr>
+          <tr><td rowspan="2">TB_BBIS_ORDER_CONFIRM_ITEM<br>(ทุกแถว)</td><td><code>ItemStatus</code></td><td><span class="pill pill--gray">PENDING</span> (สถานะผล X-match)</td></tr>
+          <tr><td><code>IssueStatus</code></td><td><span class="pill pill--gray">PENDING</span> (สถานะจ่ายถุงเลือด)</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="small">Submit ซ้ำจะถูกปฏิเสธ — โค้ดเช็ค <code>if (bbisOrder.ConfirmStatus == CONFIRMED) return Fail</code></p>
+    </li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="step4">ขั้นที่ 4-6 — ฝั่ง LIS / BBIS</h2>
+
+  <h3>ขั้นที่ 4 — LIS ดึงใบสั่ง</h3>
+  <p><code>GET /api/BloodBank/orders/{orderNumber}</code></p>
+  <ul>
+    <li>รับเฉพาะใบสั่งที่ <code>ConfirmStatus ∈ {CONFIRMED, APPROVED}</code> เท่านั้น — ถ้ายัง <code>PENDING</code> จะได้ <code>OrderNumber not found.</code></li>
+    <li>ถ้าเป็น <code>CONFIRMED</code> ระบบจะ <b>เปลี่ยนเป็น <span class="pill pill--purple">APPROVED</span> ทันทีที่ถูกอ่าน</b>
+        (ถือว่า LIS รับงานไปแล้ว) — เป็น side-effect ของ GET ที่ต้องระวังตอนทดสอบ</li>
+    <li>คืนข้อมูลผู้ป่วย + array <code>order[]</code> (testcode, testname, qty, volume, priority, usedate)</li>
+  </ul>
+
+  <h3>ขั้นที่ 5 — LIS ส่งผล Cross-match</h3>
+  <p><code>POST /api/BloodBank/cross-matches</code></p>
+  <ol class="steps steps--purple">
+    <li><b>ตรวจสิทธิ์เข้าถึงใบสั่ง</b><p>ต้อง <code>ConfirmStatus = APPROVED</code> เท่านั้น</p></li>
+    <li><b>จับคู่ Item ด้วย <code>testcode</code></b><p>เทียบกับ <code>TB_BBIS_ORDER_CONFIRM_ITEM.TestCode</code> ถ้าไม่ตรง → ข้ามเงียบ ๆ</p></li>
+    <li><b>บันทึกผล</b>
+      <p>เพิ่มแถว <code>TB_BBIS_RESULT</code> (ResultText, BagNumber, Component, ApproveBy, ApproveDateTime)
+         และตั้ง <code>Item.ItemStatus = COMPLETED</code></p></li>
+    <li><b>สร้างผล Lab ในระบบ HIS</b>
+      <p>ถ้าหา <code>TBM_LAB_TESTS</code> และ <code>TB_FINANCES</code> ที่ผูกกันเจอ จะเพิ่มแถว <code>TB_LAB_RESULTS</code>
+         แล้วเขียน <code>LabResultId</code> กลับไปที่ <code>TB_BBIS_RESULT</code></p></li>
+    <li><b>อัปเดตสถานะใบสั่ง</b>
+      <p><code>OrderStatus</code> = <span class="pill pill--amber">INPROGRESS</span> และจะเป็น
+         <span class="pill pill--green">COMPLETED</span> เมื่อ <b>ทุก Item</b> มี <code>ItemStatus = COMPLETED</code></p></li>
+  </ol>
+
+  <h3>ขั้นที่ 6 — LIS แจ้งจ่ายถุงเลือด</h3>
+  <p><code>POST /api/BloodBank/blood-issues</code> — เป็นขั้นที่ <b>เกิดค่าใช้จ่ายจริง</b></p>
+  <ol class="steps steps--purple">
+    <li><b>ตรวจ <code>ConfirmStatus = APPROVED</code></b> และเปิด DB Transaction ครอบทั้งงาน</li>
+    <li><b>โหลดบริบทล่วงหน้า</b>
+      <p>ผู้ป่วย, <code>TBM_EXPENSES</code>, และบริบท OPD (<code>TB_OPD_SERVICES</code>/<code>TB_OPD_CLINICS</code>/<code>TB_OPD_RIGHTS</code>)
+         หรือ IPD (<code>TB_ADMITS</code>/<code>TB_ADMIT_RIGHTS</code>) ตาม <code>OpdIpd</code></p></li>
+    <li><b>กันการส่งซ้ำ</b>
+      <p>สร้าง key <code>(BbisOrderConfirmItemId, BagNumber)</code> จากแถวที่เคย issue แล้ว
+         ถ้าซ้ำ → ข้าม ไม่สร้างค่าใช้จ่ายซ้ำ (รองรับ retry ของ LIS)</p></li>
+    <li><b>เขียน <code>TB_BBIS_ISSUE</code> + <code>TB_FINANCES</code></b>
+      <p>ค่าใช้จ่ายทุกแถวที่เกิดในการ submit รอบเดียวกันจะใช้ <code>OrderId</code> เดียวกัน
+         (จาก <code>SequenceHelper.GetSequenceNumber(SeqGenerateFinanceOrderId)</code>)
+         และตั้ง <code>Item.IssueStatus = COMPLETED</code></p>
+      <p class="small">ค่า FinanceType มาจาก <code>Expense.FinanceType</code> ถ้าไม่มีจะใช้ <code>'L'</code> (LAB)
+         ส่วน <code>UserDispensed</code>/<code>DateDispensed</code> มาจาก <code>issueby</code>/<code>issuedate</code> ที่ LIS ส่งมา</p></li>
+    <li><b>เขียน FinanceId กลับ</b>
+      <p>บันทึก <code>Item.FinanceId</code> (เก็บ<b>ค่าแรก</b>เท่านั้น หากมีหลายถุงต่อ 1 Item)
+         ถ้าเกิดข้อผิดพลาดกลางทาง จะ Rollback ทั้งชุด</p></li>
+  </ol>
+
+  <div class="note note--danger">
+    <b class="note__label">ลำดับสำคัญมาก</b>
+    <p><code>TB_LAB_RESULTS</code> ในขั้นที่ 5 ต้องอาศัย <code>Item.FinanceId</code> ซึ่งถูกเซ็ตในขั้นที่ 6
+       ดังนั้นถ้ายิง <b>cross-matches ก่อน blood-issues</b> ระบบจะบันทึก <code>TB_BBIS_RESULT</code> ให้
+       แต่ <b>จะไม่สร้าง <code>TB_LAB_RESULTS</code></b> (โค้ด <code>if (labTest == null || finance == null) continue;</code>)
+       → ผล Lab จะไม่ไปโผล่ในระบบ HIS ปกติ</p>
+    <p><b>ลำดับที่แนะนำสำหรับการจำลอง:</b> GET order → <code>blood-issues</code> → <code>cross-matches</code></p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="step7">ขั้นที่ 7 — หน้า “ตรวจสอบผล Lab”</h2>
+
+  <p><b>เส้นทาง:</b> <code>/blood-bank/lab-result</code> · Component <code>LabResultCheckComponent</code></p>
+
+  <ol class="steps">
+    <li>
+      <b>เลือกวันที่ / ค้นหา</b>
+      <p><code>POST /api/BloodBank/orders/search-results</code> — <b>แสดงเฉพาะใบสั่งที่ <code>ConfirmStatus = APPROVED</code></b>
+         (ยังไม่ถูก LIS ดึง จะไม่ปรากฏในหน้านี้) พร้อมตัวนับ <code>InProgressTotal</code> / <code>CompleteTotal</code>
+         ซึ่งนับจาก <code>OrderStatus</code></p>
+    </li>
+    <li>
+      <b>คลิกใบสั่งเพื่อดูรายละเอียด</b>
+      <p><code>GET /api/BloodBank/orders/{orderNumber}/results</code> คืนข้อมูลสรุป 6 ตัว:</p>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>ฟิลด์</th><th>นับจาก</th></tr></thead>
+        <tbody>
+          <tr><td><code>AllResultTotal</code> / <code>ResultPendingTotal</code> / <code>ResultCompletedTotal</code></td><td><code>Item.ItemStatus</code> (ผล Cross-match)</td></tr>
+          <tr><td><code>AllIssueTotal</code> / <code>IssuePendingTotal</code> / <code>IssueCompletedTotal</code></td><td><code>Item.IssueStatus</code> (การจ่ายถุงเลือด)</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>ตารางรายบรรทัดแสดง: กลุ่ม Lab, Priority, ผล (<code>ResultText</code>), ผู้ Approve + เวลา,
+         สถานะจ่าย, เลขถุง/ส่วนประกอบ, ผู้จ่าย + เวลา</p>
+    </li>
+    <li>
+      <b>พิมพ์ใบรับเลือด</b>
+      <p>ปุ่มพิมพ์เรียก <code>PrintReportService.exportReportPdf_BloodReceive(orderNumber)</code></p>
+    </li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="state">State Machine</h2>
+
+  <h3>ระดับใบสั่ง — <code>ConfirmStatus</code> (สถานะการยืนยัน)</h3>
+  <ul class="flow">
+    <li><b>PENDING</b><span>เกิดจากการสั่ง Lab</span></li>
+    <li><b>CONFIRMED</b><span>จนท. กด Submit</span></li>
+    <li class="is-lis"><b>APPROVED</b><span>LIS เรียก GET order</span></li>
+  </ul>
+
+  <h3>ระดับใบสั่ง — <code>OrderStatus</code> (สถานะงานผล)</h3>
+  <ul class="flow">
+    <li><b>INPROGRESS</b><span>ตั้งตอน Submit / รับผลบางส่วน</span></li>
+    <li class="is-done"><b>COMPLETED</b><span>ทุก Item มี ItemStatus = COMPLETED</span></li>
+  </ul>
+
+  <h3>ระดับรายการ — <code>ItemStatus</code> และ <code>IssueStatus</code></h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>คอลัมน์</th><th>PENDING</th><th>COMPLETED</th><th>ถูกเปลี่ยนโดย</th></tr></thead>
+    <tbody>
+      <tr><td><code>ItemStatus</code></td><td>รอผล Cross-match</td><td>ได้ผลแล้ว</td><td><code>POST /cross-matches</code></td></tr>
+      <tr><td><code>IssueStatus</code></td><td>ยังไม่จ่ายถุงเลือด</td><td>จ่ายแล้ว + ลงค่าใช้จ่ายแล้ว</td><td><code>POST /blood-issues</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="small">ค่าคงที่ทั้งหมดอยู่ที่ <code>BloodBankOrderStatus</code> / <code>BloodBankItemStatus</code>
+     — <code>PENDING, INPROGRESS, CONFIRMED, APPROVED, COMPLETED</code> และ <code>ROUTINE, STAT, PRE_OPERATION</code></p>
+
+  <!-- ================================================================== -->
+  <h2 id="db">ตารางฐานข้อมูล</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ตาราง</th><th>หน้าที่</th><th>คอลัมน์สำคัญ</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>TB_BBIS_ORDER_CONFIRM</code></td>
+        <td>หัวใบสั่ง 1 แถวต่อ 1 OrderId</td>
+        <td><code>BbisOrderConfirmId</code> (PK), <code>OrderNumber</code> = TB_FINANCES.ORDER_ID,
+            <code>PatientId, HN, AN, VN, OpdIpd, RightId, WardCode, OrderDateTime,
+            ConfirmStatus, OrderStatus</code></td>
+      </tr>
+      <tr>
+        <td><code>TB_BBIS_ORDER_CONFIRM_ITEM</code></td>
+        <td>รายการ Lab + ยอดเงิน</td>
+        <td><code>ExpenseId, TestCode, TestName, Qty, Volume, Priority, UseDate,
+            Price/Amount/Claim/Copay/Discount/Payment/Reminburse/Cost,
+            ItemStatus, IssueStatus, FinanceItemCode, FinanceId</code></td>
+      </tr>
+      <tr>
+        <td><code>TB_BBIS_RESULT</code></td>
+        <td>ผล Cross-match ที่ LIS ส่งมา</td>
+        <td><code>ResultText, BagNumber, Component, ApproveBy, ApproveDateTime, LabResultId</code></td>
+      </tr>
+      <tr>
+        <td><code>TB_BBIS_ISSUE</code></td>
+        <td>ประวัติจ่ายถุงเลือด</td>
+        <td><code>TestCode, ResultText, BagNumber, Component, IssueBy, IssueDateTime</code></td>
+      </tr>
+      <tr>
+        <td><code>TB_FINANCES</code></td>
+        <td>ค่าใช้จ่าย (สร้างตอน blood-issues)</td>
+        <td><code>FinanceType, Code, ExpenseId, OrderId, Labnumber, UserDispensed, DateDispensed</code></td>
+      </tr>
+      <tr>
+        <td><code>TB_LAB_RESULTS</code></td>
+        <td>ผล Lab ในระบบ HIS ปกติ</td>
+        <td><code>FinanceId, TestId, LabResultCode, LabOrderCode, OrderId</code></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="small">Migration ที่สร้างตารางชุดนี้: <code>25690427070651_AddTbBloodBank</code></p>
+
+  <!-- ================================================================== -->
+  <h2 id="api">API Reference</h2>
+
+  <h3>กลุ่ม A — สำหรับหน้าจอ HA.OS (ต้องมี JWT ของผู้ใช้)</h3>
+  <p>Controller: <code>BloodBankController</code> · base <code>[Authorize] + [CustomAuthorize]</code></p>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Method</th><th>Path</th><th>ใช้ที่หน้าจอ</th></tr></thead>
+    <tbody>
+      <tr><td>POST</td><td><code>/api/BloodBank/orders</code></td><td>Dashboard — โหลดรายการ + ตัวนับ</td></tr>
+      <tr><td>GET</td><td><code>/api/BloodBank/orders/{orderNumber}/items</code></td><td>Dashboard — รายละเอียดใบสั่ง (จัดกลุ่ม Lab)</td></tr>
+      <tr><td>GET</td><td><code>/api/BloodBank/orders/{orderNumber}/issue</code></td><td>เปิดหน้า Issue Blood</td></tr>
+      <tr><td>PUT</td><td><code>/api/BloodBank/orders/{orderNumber}/issue</code></td><td>บันทึก Priority / UseDate</td></tr>
+      <tr><td>POST</td><td><code>/api/BloodBank/orders/{orderNumber}/submit</code></td><td>ยืนยันใบสั่ง → CONFIRMED</td></tr>
+      <tr><td>POST</td><td><code>/api/BloodBank/orders/search-results</code></td><td>หน้าตรวจสอบผล Lab</td></tr>
+      <tr><td>GET</td><td><code>/api/BloodBank/orders/{orderNumber}/results</code></td><td>รายละเอียดผล + การจ่ายถุง</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>กลุ่ม B — สำหรับ LIS/BBIS (header <code>PersonalToken</code>)</h3>
+  <p>Controller: <code>BloodBankApiServiceController</code> · base <code>[CustomApiServiceAuthorize]</code></p>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Method</th><th>Path</th><th>Body</th><th>เงื่อนไข</th></tr></thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/api/BloodBank/orders/{orderNumber}</code></td><td>—</td><td>ConfirmStatus ∈ {CONFIRMED, APPROVED}<br>(CONFIRMED → พลิกเป็น APPROVED)</td></tr>
+      <tr><td>POST</td><td><code>/api/BloodBank/cross-matches</code></td><td><code>BloodBankSendResultModel</code></td><td>ConfirmStatus = APPROVED</td></tr>
+      <tr><td>POST</td><td><code>/api/BloodBank/blood-issues</code></td><td><code>BloodBankSendBagModel</code></td><td>ConfirmStatus = APPROVED</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="simulate">การจำลอง Case แทน LIS</h2>
+
+  <p>เมื่อยังไม่มี BBIS จริงมาเชื่อม เราสามารถ “สวมบทเป็น LIS” ได้ครบทุกขั้นด้วยการยิง HTTP 3 ครั้ง
+     ต่อไปนี้คือขั้นตอนแบบ end-to-end</p>
+
+  <h3>A. เตรียม PersonalToken (ทำครั้งเดียว)</h3>
+  <ol class="steps steps--green">
+    <li>
+      <b>เข้าเมนู งานผู้ดูแลระบบ › ลงทะเบียนผู้ใช้งานระบบ</b>
+      <p>เลือกผู้ใช้ที่จะให้เป็น “บัญชีของ LIS” (แนะนำสร้าง user แยก เช่น <code>svc_bbis</code>
+         เพราะทุกค่าใช้จ่ายที่เกิดจาก blood-issues จะบันทึก <code>UserCreated</code> เป็น user เจ้าของ token นี้)</p>
+    </li>
+    <li>
+      <b>สร้าง Personal Access Token</b>
+      <p>ตั้งชื่อ Token + วันหมดอายุ (เว้นว่าง = ไม่หมดอายุ) แล้วกดสร้าง
+         ระบบจะเปิด dialog แสดง token ซึ่งเป็น <b>GUID แบบไม่มีขีด 32 ตัวอักษร</b></p>
+      <div class="note note--warn">
+        <b class="note__label">แสดงครั้งเดียว</b>
+        <p>ระบบเก็บเฉพาะค่า hash ลง <code>TB_PERSONAL_ACCESS_TOKENS.AccessToken</code>
+           ถ้าปิด dialog ไปแล้วจะดูย้อนหลังไม่ได้ ต้องกด Revoke เพื่อออกใหม่</p>
+      </div>
+    </li>
+    <li>
+      <b>ทดสอบ token</b>
+      <p>ยิง GET ใบสั่งใดก็ได้ — ถ้าได้ <code>401</code> แปลว่า token ผิด/หมดอายุ,
+         ถ้าได้ <code>500</code> แปลว่าฝั่ง server มีปัญหา (เช่น DB) ไม่ใช่ token หมดอายุ</p>
+    </li>
+  </ol>
+
+  <h3>B. เตรียมเคสทดสอบใน HA.OS</h3>
+  <ol class="steps steps--green">
+    <li><b>ตรวจ Prerequisite ครบ 3 ข้อ</b><p>ดูหัวข้อ <a href="#prereq">Prerequisite</a> ด้านบน</p></li>
+    <li><b>สั่ง Lab กลุ่มธนาคารเลือดให้ผู้ป่วยทดสอบ</b>
+      <p>ทำผ่านห้องตรวจแพทย์ หรือทางลัดที่เร็วกว่า: <b>งานการเงิน › บันทึกค่าใช้จ่ายที่ไม่ใช่ยา</b>
+         แล้วเลือกรายการ Lab ที่ <code>LABGROUP = '01'</code></p></li>
+    <li><b>จดเลข Order Number</b>
+      <p>คือ <code>TB_FINANCES.ORDER_ID</code> ของใบสั่งนั้น หาได้จากหน้า Dashboard ธนาคารเลือด
+         (คอลัมน์ Order No.) หรือ SQL ด้านล่าง</p>
+      <pre class="code"><code><span class="k">SELECT TOP</span> 20 c.ORDER_NUMBER, c.HN, c.AN, c.OPD_IPD,
+       c.CONFIRM_STATUS, c.ORDER_STATUS, c.ORDER_DATE_TIME
+<span class="k">FROM</span>   TB_BBIS_ORDER_CONFIRM c
+<span class="k">ORDER BY</span> c.BBIS_ORDER_CONFIRM_ID <span class="k">DESC</span>;</code></pre></li>
+    <li><b>Issue Blood + Submit บนหน้าจอ</b>
+      <p>ต้องทำขั้นนี้ก่อนเสมอ ไม่งั้น GET ฝั่ง LIS จะไม่เห็นใบสั่ง (ยังเป็น <code>PENDING</code>)</p></li>
+    <li><b>จดรายการ testcode ที่ต้องใช้</b>
+      <pre class="code"><code><span class="k">SELECT</span> i.TEST_CODE, i.TEST_NAME, i.EXPENSE_ID, i.QTY,
+       i.PRIORITY, i.ITEM_STATUS, i.ISSUE_STATUS
+<span class="k">FROM</span>   TB_BBIS_ORDER_CONFIRM_ITEM i
+<span class="k">JOIN</span>   TB_BBIS_ORDER_CONFIRM c <span class="k">ON</span> c.BBIS_ORDER_CONFIRM_ID = i.BBIS_ORDER_CONFIRM_ID
+<span class="k">WHERE</span>  c.ORDER_NUMBER = <span class="s">'&lt;ORDER_NUMBER&gt;'</span>;</code></pre>
+      <p class="small"><code>testcode</code> ที่ต้องส่งกลับมา = ค่าในคอลัมน์ <code>TEST_CODE</code> นี้เป๊ะ ๆ (คือรหัส Expense)</p></li>
+  </ol>
+
+  <h3>C. ยิง API แทน LIS</h3>
+
+  <p>ตัวอย่างใช้ base URL <code>http://localhost:5000</code> (ค่าใน <code>config.deploy.json</code> ของ WebClient)
+     แทน <code>&lt;TOKEN&gt;</code> ด้วย Personal Access Token และ <code>&lt;ORDER&gt;</code> ด้วย Order Number</p>
+
+  <h4>C.1 — ดึงใบสั่ง (จำลอง LIS รับงาน)</h4>
+  <pre class="code"><code><span class="c"># bash / curl</span>
+curl -s -X GET <span class="s">"http://localhost:5000/api/BloodBank/orders/&lt;ORDER&gt;"</span> \
+     -H <span class="s">"PersonalToken: &lt;TOKEN&gt;"</span></code></pre>
+  <pre class="code"><code><span class="c"># PowerShell</span>
+<span class="n">$h</span> = @{ <span class="s">'PersonalToken'</span> = <span class="s">'&lt;TOKEN&gt;'</span> }
+Invoke-RestMethod -Method Get <span class="s">'http://localhost:5000/api/BloodBank/orders/&lt;ORDER&gt;'</span> -Headers <span class="n">$h</span> |
+  ConvertTo-Json -Depth 6</code></pre>
+
+  <p><b>ผลที่คาดหวัง:</b> ได้ข้อมูลผู้ป่วย + <code>order[]</code> และสถานะใบสั่งเปลี่ยนเป็น
+     <span class="pill pill--purple">APPROVED</span></p>
+
+  <h4>C.2 — แจ้งจ่ายถุงเลือด (ทำก่อน เพื่อให้เกิด FinanceId)</h4>
+  <pre class="code"><code>curl -s -X POST <span class="s">"http://localhost:5000/api/BloodBank/blood-issues"</span> \
+  -H <span class="s">"PersonalToken: &lt;TOKEN&gt;"</span> \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{
+    "ordernumber": "&lt;ORDER&gt;",
+    "hn": "&lt;HN&gt;",
+    "title": "นาย",
+    "name": "ทดสอบ",
+    "lastname": "ระบบ",
+    "idcard": "1234567890123",
+    "sex": "M",
+    "dob": "1990-01-01",
+    "issue": [
+      {
+        "testcode":  "&lt;TEST_CODE&gt;",
+        "testname":  "Cross Matching",
+        "itemcost":  "500",
+        "result":    "Compatible",
+        "bagnumber": "BAG-0001",
+        "component": "LPRC",
+        "issueby":   "MT001",
+        "issuedate": "2026-09-08T10:30:00"
+      }
+    ]
+  }'</span></code></pre>
+
+  <p><b>ผลที่คาดหวัง:</b></p>
+  <ul>
+    <li>เพิ่มแถวใน <code>TB_BBIS_ISSUE</code></li>
+    <li>เพิ่มแถวใน <code>TB_FINANCES</code> (ค่าใช้จ่ายถุงเลือด) ผูก <code>Labnumber = ORDER_NUMBER</code></li>
+    <li><code>Item.IssueStatus</code> → <span class="pill pill--green">COMPLETED</span> และ <code>Item.FinanceId</code> ถูกเซ็ต</li>
+  </ul>
+
+  <div class="note">
+    <b class="note__label">หลายถุงต่อ 1 รายการ</b>
+    <p>ส่งหลาย element ใน <code>issue[]</code> ที่มี <code>testcode</code> เดียวกันแต่ <code>bagnumber</code> ต่างกันได้
+       ระบบจะสร้าง <code>TB_FINANCES</code> แยกแถวต่อถุง แต่ <code>Item.FinanceId</code> จะเก็บเฉพาะแถวแรก
+       และการส่ง <code>bagnumber</code> เดิมซ้ำจะถูกกันไว้ (idempotent)</p>
+  </div>
+
+  <h4>C.3 — ส่งผล Cross-match</h4>
+  <pre class="code"><code>curl -s -X POST <span class="s">"http://localhost:5000/api/BloodBank/cross-matches"</span> \
+  -H <span class="s">"PersonalToken: &lt;TOKEN&gt;"</span> \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'{
+    "ordernumber": "&lt;ORDER&gt;",
+    "hn": "&lt;HN&gt;",
+    "title": "นาย",
+    "name": "ทดสอบ",
+    "lastname": "ระบบ",
+    "idcard": "1234567890123",
+    "sex": "M",
+    "dob": "1990-01-01",
+    "result": [
+      {
+        "testcode":    "&lt;TEST_CODE&gt;",
+        "testname":    "Cross Matching",
+        "result":      "Compatible / No agglutination",
+        "bagnumber":   "BAG-0001",
+        "component":   "LPRC",
+        "approveby":   "MT001",
+        "approvedate": "2026-09-08T11:00:00"
+      }
+    ]
+  }'</span></code></pre>
+
+  <p><b>ผลที่คาดหวัง:</b> เพิ่ม <code>TB_BBIS_RESULT</code> + <code>TB_LAB_RESULTS</code>,
+     <code>Item.ItemStatus</code> → <span class="pill pill--green">COMPLETED</span>,
+     และเมื่อครบทุก Item → <code>OrderStatus</code> = <span class="pill pill--green">COMPLETED</span></p>
+
+  <h3>D. สคริปต์จำลองครบ Flow (PowerShell)</h3>
+  <pre class="code"><code><span class="n">$base</span>  = <span class="s">'http://localhost:5000'</span>
+<span class="n">$token</span> = <span class="s">'&lt;TOKEN&gt;'</span>
+<span class="n">$order</span> = <span class="s">'&lt;ORDER&gt;'</span>
+<span class="n">$hn</span>    = <span class="s">'&lt;HN&gt;'</span>
+<span class="n">$code</span>  = <span class="s">'&lt;TEST_CODE&gt;'</span>
+<span class="n">$h</span> = @{ <span class="s">'PersonalToken'</span> = <span class="n">$token</span>; <span class="s">'Content-Type'</span> = <span class="s">'application/json'</span> }
+
+<span class="c"># 1) LIS รับงาน  (CONFIRMED -> APPROVED)</span>
+Invoke-RestMethod -Method Get <span class="s">"$base/api/BloodBank/orders/$order"</span> -Headers <span class="n">$h</span>
+
+<span class="c"># 2) แจ้งจ่ายถุงเลือด -> เกิด TB_FINANCES + FinanceId</span>
+<span class="n">$issue</span> = @{
+  ordernumber = <span class="n">$order</span>; hn = <span class="n">$hn</span>
+  issue = @(@{
+    testcode  = <span class="n">$code</span>;      testname  = <span class="s">'Cross Matching'</span>
+    itemcost  = <span class="s">'500'</span>;      result    = <span class="s">'Compatible'</span>
+    bagnumber = <span class="s">'BAG-0001'</span>; component = <span class="s">'LPRC'</span>
+    issueby   = <span class="s">'MT001'</span>;    issuedate = (Get-Date).ToString(<span class="s">'s'</span>)
+  })
+} | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post <span class="s">"$base/api/BloodBank/blood-issues"</span> -Headers <span class="n">$h</span> -Body <span class="n">$issue</span>
+
+<span class="c"># 3) ส่งผล Cross-match -> เกิด TB_BBIS_RESULT + TB_LAB_RESULTS</span>
+<span class="n">$res</span> = @{
+  ordernumber = <span class="n">$order</span>; hn = <span class="n">$hn</span>
+  result = @(@{
+    testcode  = <span class="n">$code</span>;      testname    = <span class="s">'Cross Matching'</span>
+    result    = <span class="s">'Compatible'</span>; bagnumber   = <span class="s">'BAG-0001'</span>
+    component = <span class="s">'LPRC'</span>;     approveby   = <span class="s">'MT001'</span>
+    approvedate = (Get-Date).ToString(<span class="s">'s'</span>)
+  })
+} | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Method Post <span class="s">"$base/api/BloodBank/cross-matches"</span> -Headers <span class="n">$h</span> -Body <span class="n">$res</span></code></pre>
+
+  <h3>E. ตรวจผลลัพธ์ใน DB</h3>
+  <pre class="code"><code><span class="k">DECLARE</span> <span class="n">@ord</span> <span class="k">VARCHAR</span>(20) = <span class="s">'&lt;ORDER&gt;'</span>;
+
+<span class="c">-- สถานะหัวใบสั่ง</span>
+<span class="k">SELECT</span> ORDER_NUMBER, CONFIRM_STATUS, ORDER_STATUS, DATE_MODIFIED
+<span class="k">FROM</span>   TB_BBIS_ORDER_CONFIRM <span class="k">WHERE</span> ORDER_NUMBER = <span class="n">@ord</span>;
+
+<span class="c">-- สถานะรายบรรทัด</span>
+<span class="k">SELECT</span> i.TEST_CODE, i.PRIORITY, i.ITEM_STATUS, i.ISSUE_STATUS, i.FINANCE_ID
+<span class="k">FROM</span>   TB_BBIS_ORDER_CONFIRM_ITEM i
+<span class="k">JOIN</span>   TB_BBIS_ORDER_CONFIRM c <span class="k">ON</span> c.BBIS_ORDER_CONFIRM_ID = i.BBIS_ORDER_CONFIRM_ID
+<span class="k">WHERE</span>  c.ORDER_NUMBER = <span class="n">@ord</span>;
+
+<span class="c">-- ผล X-match / การจ่ายถุง</span>
+<span class="k">SELECT</span> <span class="s">'RESULT'</span> src, TEST_CODE, RESULT_TEXT, BAG_NUMBER, COMPONENT,
+       APPROVE_BY <span class="k">AS</span> ACTOR, APPROVE_DATE_TIME <span class="k">AS</span> ACTED_AT, LAB_RESULT_ID
+<span class="k">FROM</span>   TB_BBIS_RESULT <span class="k">WHERE</span> ORDER_NUMBER = <span class="n">@ord</span>
+<span class="k">UNION ALL</span>
+<span class="k">SELECT</span> <span class="s">'ISSUE'</span>, TEST_CODE, RESULT_TEXT, BAG_NUMBER, COMPONENT,
+       ISSUE_BY, ISSUE_DATE_TIME, <span class="k">NULL</span>
+<span class="k">FROM</span>   TB_BBIS_ISSUE <span class="k">WHERE</span> ORDER_NUMBER = <span class="n">@ord</span>;
+
+<span class="c">-- ค่าใช้จ่ายที่เกิดจากการจ่ายถุงเลือด</span>
+<span class="k">SELECT</span> FINANCE_ID, ORDER_ID, CODE, EXPENSE_NAME, AMOUNT,
+       USER_DISPENSED, DATE_DISPENSED
+<span class="k">FROM</span>   TB_FINANCES <span class="k">WHERE</span> LABNUMBER = <span class="k">TRY_CONVERT</span>(<span class="k">DECIMAL</span>(20,0), <span class="n">@ord</span>);</code></pre>
+
+  <h3>F. Reset เคสเพื่อทดสอบซ้ำ</h3>
+  <div class="note note--danger">
+    <b class="note__label">ใช้เฉพาะฐานข้อมูลทดสอบเท่านั้น</b>
+    <p>อย่ารันบน Production — ค่าใช้จ่ายที่ลบไปมีผลต่อใบเสร็จและงานเรียกเก็บ</p>
+  </div>
+  <pre class="code"><code><span class="k">DECLARE</span> <span class="n">@ord</span> <span class="k">VARCHAR</span>(20) = <span class="s">'&lt;ORDER&gt;'</span>;
+<span class="k">DECLARE</span> <span class="n">@id</span>  <span class="k">DECIMAL</span>(20,0) =
+  (<span class="k">SELECT</span> BBIS_ORDER_CONFIRM_ID <span class="k">FROM</span> TB_BBIS_ORDER_CONFIRM <span class="k">WHERE</span> ORDER_NUMBER = <span class="n">@ord</span>);
+
+<span class="k">BEGIN TRAN</span>;
+  <span class="k">DELETE</span> <span class="k">FROM</span> TB_BBIS_RESULT <span class="k">WHERE</span> BBIS_ORDER_CONFIRM_ID = <span class="n">@id</span>;
+  <span class="k">DELETE</span> <span class="k">FROM</span> TB_BBIS_ISSUE  <span class="k">WHERE</span> BBIS_ORDER_CONFIRM_ID = <span class="n">@id</span>;
+
+  <span class="k">UPDATE</span> TB_BBIS_ORDER_CONFIRM_ITEM
+     <span class="k">SET</span> ITEM_STATUS = <span class="s">'PENDING'</span>, ISSUE_STATUS = <span class="s">'PENDING'</span>, FINANCE_ID = <span class="k">NULL</span>
+   <span class="k">WHERE</span> BBIS_ORDER_CONFIRM_ID = <span class="n">@id</span>;
+
+  <span class="c">-- ย้อนกลับไปสถานะ "รอ LIS ดึง" เพื่อยิง GET ใหม่ได้อีกครั้ง</span>
+  <span class="k">UPDATE</span> TB_BBIS_ORDER_CONFIRM
+     <span class="k">SET</span> CONFIRM_STATUS = <span class="s">'CONFIRMED'</span>, ORDER_STATUS = <span class="s">'INPROGRESS'</span>
+   <span class="k">WHERE</span> BBIS_ORDER_CONFIRM_ID = <span class="n">@id</span>;
+<span class="c">-- COMMIT;  /* ตรวจผลก่อนแล้วค่อย commit */</span></code></pre>
+  <p class="small">อย่าลืมลบ <code>TB_FINANCES</code> / <code>TB_LAB_RESULTS</code> ที่เกิดขึ้นด้วย ถ้าต้องการเคสสะอาดจริง ๆ</p>
+
+  <h3>G. Test Case ที่ควรจำลอง</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>#</th><th>สถานการณ์</th><th>วิธีจำลอง</th><th>ผลที่ควรได้</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Happy path ครบ flow</td><td>GET → blood-issues → cross-matches</td><td>OrderStatus = COMPLETED, ผล Lab ขึ้นในระบบ HIS</td></tr>
+      <tr><td>2</td><td>Order ยังไม่ Submit</td><td>ยิง GET ทันทีหลังสั่ง Lab</td><td><code>OrderNumber not found.</code></td></tr>
+      <tr><td>3</td><td>ส่งผลก่อน LIS ดึง</td><td>ยิง cross-matches ตอนสถานะ CONFIRMED</td><td><code>OrderNumber not found.</code> (ต้อง APPROVED)</td></tr>
+      <tr><td>4</td><td>LIS retry ส่งซ้ำ</td><td>ยิง blood-issues body เดิม 2 ครั้ง</td><td>ครั้งที่ 2 ไม่สร้าง TB_FINANCES ซ้ำ</td></tr>
+      <tr><td>5</td><td>ส่งหลายถุงต่อ 1 Item</td><td><code>issue[]</code> 2 element, bagnumber ต่างกัน</td><td>2 แถว TB_BBIS_ISSUE + 2 แถว TB_FINANCES</td></tr>
+      <tr><td>6</td><td>testcode ผิด</td><td>ส่ง testcode ที่ไม่มีในใบสั่ง</td><td>ตอบ success แต่ไม่มีอะไรถูกบันทึก (ข้ามเงียบ)</td></tr>
+      <tr><td>7</td><td>ผลบางส่วน (partial)</td><td>ใบสั่งมี 3 Item ส่งผลแค่ 2</td><td>OrderStatus ค้างที่ INPROGRESS</td></tr>
+      <tr><td>8</td><td>ผู้ป่วย IPD</td><td>สั่ง Lab จาก Ward (มี AN)</td><td>TB_FINANCES มี AdmitId / AdmitRightId ถูกต้อง</td></tr>
+      <tr><td>9</td><td>Token หมดอายุ</td><td>ตั้ง ExpireDate ย้อนหลัง</td><td>HTTP 401</td></tr>
+      <tr><td>10</td><td>ลำดับสลับ (ผิด)</td><td>cross-matches ก่อน blood-issues</td><td>มี TB_BBIS_RESULT แต่ <b>ไม่มี</b> TB_LAB_RESULTS — ใช้ยืนยันข้อจำกัดนี้</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="pitfall">ข้อควรระวัง / กับดัก</h2>
+
+  <div class="grid grid--2">
+    <div class="card">
+      <h4>1. GET มี side-effect</h4>
+      <p><code>GET /orders/{no}</code> เปลี่ยนสถานะจาก CONFIRMED → APPROVED
+         เพราะฉะนั้นการ “เปิดดูเฉย ๆ” ระหว่างทดสอบก็เปลี่ยนสถานะแล้ว</p>
+    </div>
+    <div class="card">
+      <h4>2. PUT issue ลบ Item</h4>
+      <p><code>UpdateOrderConfirmItems</code> ลบ Item ที่ไม่ได้ส่งมา และวนหา <code>orderItem</code>
+         โดยไม่เช็ค null ก่อนใช้งาน — ถ้าส่ง <code>Code</code>/<code>ExpenseId</code> ที่ไม่มีจริงอาจได้ HTTP 500</p>
+    </div>
+    <div class="card">
+      <h4>3. FinanceId เก็บได้ค่าเดียว</h4>
+      <p>ถ้า 1 Item จ่ายหลายถุง <code>Item.FinanceId</code> จะชี้ไปที่แถวแรกเท่านั้น
+         ผล Lab ที่สร้างจึงผูกกับ Finance แถวแรก</p>
+    </div>
+    <div class="card">
+      <h4>4. ค้นด้วย Order No. บนหน้าจอเป็นการกรองฝั่ง Client</h4>
+      <p>กรองเฉพาะรายการที่โหลดมาแล้วของ “วันที่” นั้น ถ้าใบสั่งอยู่คนละวันจะหาไม่เจอ ต้องเปลี่ยนวันที่ก่อน</p>
+    </div>
+    <div class="card">
+      <h4>5. หน้าตรวจสอบผลกรอง APPROVED เท่านั้น</h4>
+      <p>ใบสั่งที่ Submit แล้วแต่ LIS ยังไม่ดึง จะไม่ปรากฏในหน้า “ตรวจสอบผล Lab”</p>
+    </div>
+    <div class="card">
+      <h4>6. ผู้ทำรายการคือเจ้าของ Token</h4>
+      <p><code>TB_FINANCES.UserCreated</code> = user ที่ผูกกับ PersonalToken
+         จึงควรสร้าง service account แยกไว้ให้ตรวจสอบย้อนหลังได้</p>
+    </div>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="legacy">ช่องทาง Legacy (ไฟล์ ASTM + endpoint เดิม)</h2>
+
+  <p>ก่อนจะมีชุด API ใหม่ ระบบเชื่อม BBIS ผ่าน <b>ไฟล์ ASTM</b> และ endpoint อีกชุดหนึ่งซึ่งยังอยู่ในโค้ด</p>
+
+  <h3>ไฟล์ร้องขอ (Request)</h3>
+  <p><code>MlabService.BloodBankRequest(orderId)</code> เขียนไฟล์ <code>{OrderId}.bld</code> encoding <b>TIS-620</b>
+     ลงโฟลเดอร์ <code>TBM_HOSP_PARAMETERS.BbReqPath</code> โครงสร้าง 3 ส่วน:</p>
+  <pre class="code"><code>H|\^&amp;|||NOPPARAT|||||CIT5K|P||yyyyMMddHHmmss        <span class="c">← Header</span>
+P|1|{LN}|{HN}|^{IDCARD}|{SURNAME}^{PRENAME}^{NAME}...  <span class="c">← Patient</span>
+O|1|{LN}||^^^{LISCODE}^B^^|||||||A|||...               <span class="c">← Order (1 บรรทัด/รายการ)</span>
+L|1|N                                                   <span class="c">← Terminator</span></code></pre>
+  <p class="small">ทำงานเมื่อ <code>Expense.LabMeaning = 'BB'</code> และเป็นเคส <code>AutoAcceptFlag</code></p>
+
+  <h3>Endpoint เดิม (BloodService)</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Path</th><th>หน้าที่</th><th>สถานะ</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET /api/BloodBank/OrderOpd?orderNumber=</code></td><td>ดึงใบสั่ง (อ่านจาก TB_FINANCES ตรง ๆ)</td><td rowspan="5" class="small">ยังอยู่ในโค้ด ใช้ <code>[Authorize]</code> (JWT) ไม่ใช่ PersonalToken<br>แนะนำใช้ชุดใหม่สำหรับงานใหม่</td></tr>
+      <tr><td><code>POST /api/BloodBank/SendResult</code></td><td>ส่งผล</td></tr>
+      <tr><td><code>POST /api/BloodBank/SendCost</code></td><td>ส่งค่าใช้จ่าย</td></tr>
+      <tr><td><code>POST /api/BloodBank/SendBag</code></td><td>แจ้งจ่ายถุง</td></tr>
+      <tr><td><code>POST /api/BloodBank/SendReturnBag</code></td><td>แจ้งคืนถุง</td></tr>
+      <tr><td><code>GET /api/BloodBank/Patient?hn=</code></td><td>ข้อมูลผู้ป่วย</td><td><code>[AllowAnonymous]</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--warn">
+    <b class="note__label">ช่องว่างที่ยังไม่มีใน API ชุดใหม่</b>
+    <p>ชุดใหม่ยังไม่มี endpoint สำหรับ <b>คืนถุงเลือด (Return Bag)</b> และ <b>ทิ้งถุงเลือด (Discard)</b>
+       แม้หน้าจอ “ตรวจสอบผล Lab” จะมีตัวกรอง <code>RETURNED</code> / <code>DISCARDED</code> อยู่แล้วก็ตาม
+       — ปัจจุบันตัวกรองนั้นจะยังไม่คืนข้อมูล เพราะ <code>OrderStatus</code> ไม่เคยถูกตั้งเป็นค่าดังกล่าว</p>
+  </div>
+
+  <div class="footer">
+    <span><a href="index.html">← หน้าแรก</a></span>
+    <span>ถัดไป: <a href="02-finance-tech.html">02 การเงิน →</a></span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

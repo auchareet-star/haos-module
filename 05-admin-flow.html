@@ -1,0 +1,1755 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>งานผู้ดูแลระบบ — Flow การทำงานรายเมนู | HA.OS</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="m5">
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <p class="crumb"><a href="index.html">หน้าแรก</a> › ระบบหลัก › <a href="05-admin.html">งานผู้ดูแลระบบ</a> › Flow รายเมนู</p>
+
+  <div class="page-head">
+    <h1>งานผู้ดูแลระบบ — Flow การทำงานรายเมนู</h1>
+    <p>หน้านี้เป็น <b>Activity Diagram + ขั้นตอนลงมือทำจริง</b> ของเมนูทั้ง 13 เมนูใต้ “ผู้ดูแลระบบ”
+       ไล่ตามลำดับว่า <b>อะไรต้องทำก่อน อะไรทำทีหลัง</b> เพราะเมนูเหล่านี้ผูกกันเป็นทอด ๆ
+       ถ้าข้ามลำดับจะติดตรงที่ “ตัวเลือกในดรอปดาวน์ว่าง” หรือ “บันทึกไม่ผ่าน”</p>
+  </div>
+
+  <div class="who">
+    <span><b>ผู้ใช้:</b> ผู้ดูแลระบบ (ฝ่ายไอที)</span>
+    <span><b>เมนูหลัก:</b> ผู้ดูแลระบบ</span>
+    <span><b>เส้นทาง:</b> <code>/admin</code></span>
+    <span><b>จำนวนเมนู:</b> 13</span>
+  </div>
+
+  <div class="note note--tip">
+    <b class="note__label">อ่านหน้านี้คู่กับหน้าอื่น</b>
+    <p><a href="05-admin.html">งานผู้ดูแลระบบ (คู่มือการใช้งาน)</a> — อธิบายว่าโมดูลนี้ทำอะไร เหมาะกับผู้เริ่มต้น ·
+       <a href="05-admin-tech.html">ภาคผนวกเชิงเทคนิค</a> — โครงสร้างข้อมูลและ API ·
+       <b>หน้านี้</b> — ลำดับการลงมือทำและรายละเอียดรายเมนู</p>
+  </div>
+
+  <div class="toc">
+    <b>หัวข้อในหน้านี้</b>
+    <ol>
+      <li><a href="#map">แผนที่เมนูทั้งหมด</a></li>
+      <li><a href="#order">ลำดับการตั้งค่า — ทำอะไรก่อนหลัง</a></li>
+      <li><a href="#dep">ตารางลำดับและสิ่งที่ต้องมีก่อน</a></li>
+      <li><a href="#m1">1 · ข้อมูลโรงพยาบาล</a></li>
+      <li><a href="#m2">2 · รหัสหลัก</a></li>
+      <li><a href="#m3">3 · รหัสสถานที่ในโรงพยาบาล</a></li>
+      <li><a href="#m4">4 · รูปแบบเลขที่เอกสาร</a></li>
+      <li><a href="#m5">5 · กำหนดเลขที่เอกสาร</a></li>
+      <li><a href="#m6">6 · แบบฟอร์มในระบบ</a></li>
+      <li><a href="#m7">7 · รายงานในระบบ</a></li>
+      <li><a href="#m8">8 · ตั้งค่าระบบต่างๆ</a></li>
+      <li><a href="#m9">9 · กลุ่มผู้ใช้งาน</a></li>
+      <li><a href="#m10">10 · คำขอผู้ใช้งาน</a></li>
+      <li><a href="#m11">11 · ผู้ใช้งาน</a></li>
+      <li><a href="#m12">12 · Personal Access Token</a></li>
+      <li><a href="#m13">13 · รายงาน</a></li>
+      <li><a href="#routine">งานประจำหลังเปิดใช้ระบบ</a></li>
+      <li><a href="#faq">ปัญหาที่พบบ่อย</a></li>
+    </ol>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="map">แผนที่เมนูทั้งหมด</h2>
+
+  <p>ใต้เมนู <span class="menuname">ผู้ดูแลระบบ</span> มี 13 เมนู แบ่งตามลักษณะงานได้ 5 กลุ่ม
+     ตัวเลขหน้าชื่อเมนูคือ<b>ลำดับที่ควรทำ</b>เวลาตั้งระบบใหม่</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>กลุ่ม</th><th>เมนู</th><th>เส้นทาง</th><th>สิทธิที่ทำได้</th></tr></thead>
+    <tbody>
+      <tr>
+        <td rowspan="2"><b>ตัวตนโรงพยาบาล</b></td>
+        <td><b>1 · ข้อมูลโรงพยาบาล</b></td>
+        <td><code>/admin/hospital-information</code></td>
+        <td>ดู · แก้ไข</td>
+      </tr>
+      <tr>
+        <td><b>2 · รหัสหลัก</b></td>
+        <td><code>/admin/main-code</code></td>
+        <td>เพิ่ม · ดู · แก้ไข · ลบ</td>
+      </tr>
+      <tr>
+        <td><b>โครงสร้างสถานที่</b></td>
+        <td><b>3 · รหัสสถานที่ในโรงพยาบาล</b></td>
+        <td><code>/admin/work-place</code></td>
+        <td>เพิ่ม · ดู · แก้ไข · ลบ</td>
+      </tr>
+      <tr>
+        <td rowspan="2"><b>เอกสารและเลขที่</b></td>
+        <td><b>4 · รูปแบบเลขที่เอกสาร</b></td>
+        <td><code>/admin/document-number</code></td>
+        <td>เพิ่ม · ดู · แก้ไข · ลบ</td>
+      </tr>
+      <tr>
+        <td><b>5 · กำหนดเลขที่เอกสาร</b></td>
+        <td><code>/admin/set-document-number</code></td>
+        <td>ดู · แก้ไข</td>
+      </tr>
+      <tr>
+        <td rowspan="2"><b>แบบฟอร์มและรายงาน</b></td>
+        <td><b>6 · แบบฟอร์มในระบบ</b></td>
+        <td><code>/admin/system-form</code></td>
+        <td>เพิ่ม · ดู · แก้ไข · ลบ</td>
+      </tr>
+      <tr>
+        <td><b>7 · รายงานในระบบ</b></td>
+        <td><code>/admin/reported-form</code></td>
+        <td>เพิ่ม · ดู · แก้ไข · ลบ</td>
+      </tr>
+      <tr>
+        <td><b>พฤติกรรมระบบ</b></td>
+        <td><b>8 · ตั้งค่าระบบต่างๆ</b></td>
+        <td><code>/admin/set-up-various-systems</code></td>
+        <td>ดู · แก้ไข</td>
+      </tr>
+      <tr>
+        <td rowspan="4"><b>คนและสิทธิ</b></td>
+        <td><b>9 · กลุ่มผู้ใช้งาน</b></td>
+        <td><code>/admin/user-group</code></td>
+        <td>เพิ่ม · ดู · แก้ไข · ลบ</td>
+      </tr>
+      <tr>
+        <td><b>10 · คำขอผู้ใช้งาน</b></td>
+        <td><code>/admin/user/user-request</code></td>
+        <td>เพิ่ม · ดู · แก้ไข · ลบ</td>
+      </tr>
+      <tr>
+        <td><b>11 · ผู้ใช้งาน</b></td>
+        <td><code>/admin/user/users</code></td>
+        <td>เพิ่ม · ดู · แก้ไข · ลบ</td>
+      </tr>
+      <tr>
+        <td><b>12 · Personal Access Token</b></td>
+        <td><code>/admin/personal-access-token</code></td>
+        <td>เพิ่ม · ดู · แก้ไข · ลบ</td>
+      </tr>
+      <tr>
+        <td><b>ติดตามผล</b></td>
+        <td><b>13 · รายงาน</b></td>
+        <td><code>/admin/report/:module</code></td>
+        <td>ดู · ส่งออก</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="order">ลำดับการตั้งค่า — ทำอะไรก่อนหลัง</h2>
+
+  <p>เมนูของผู้ดูแลระบบ<b>ไม่ได้อิสระต่อกัน</b> เมนูปลายทางดึงตัวเลือกจากเมนูต้นทาง
+     เช่น จะสร้างคลินิกได้ต้องมี “แผนก” กับ “อาคาร” ก่อน · จะกำหนดเลขที่ใบเสร็จได้ต้องมี “รูปแบบเลขที่” ก่อน ·
+     จะสร้างผู้ใช้ได้ต้องมี “กลุ่มผู้ใช้งาน” กับ “หน่วยงาน” ก่อน
+     แผนภาพนี้คือลำดับที่ปลอดภัยที่สุดเวลาตั้งระบบใหม่ทั้งโรงพยาบาล</p>
+
+  <div style="overflow-x:auto;margin:0 0 10px;padding:4px 0">
+<svg viewBox="0 0 1020 786" role="img"
+     aria-label="Activity Diagram ลำดับการตั้งค่าระบบของผู้ดูแลระบบ 7 ระยะ"
+     font-family="IBM Plex Sans Thai, Noto Sans Thai, Sarabun, Segoe UI, sans-serif"
+     style="width:100%;min-width:900px;height:auto">
+  <defs>
+    <marker id="af-rail" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5e35b1"/></marker>
+    <marker id="af-step" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#9aa4b1"/></marker>
+  </defs>
+
+  <line x1="86" y1="98"  x2="86" y2="120" stroke="#5e35b1" stroke-width="2" marker-end="url(#af-rail)"/>
+  <line x1="86" y1="210" x2="86" y2="232" stroke="#5e35b1" stroke-width="2" marker-end="url(#af-rail)"/>
+  <line x1="86" y1="322" x2="86" y2="344" stroke="#5e35b1" stroke-width="2" marker-end="url(#af-rail)"/>
+  <line x1="86" y1="434" x2="86" y2="456" stroke="#5e35b1" stroke-width="2" marker-end="url(#af-rail)"/>
+  <line x1="86" y1="546" x2="86" y2="568" stroke="#5e35b1" stroke-width="2" marker-end="url(#af-rail)"/>
+  <line x1="86" y1="658" x2="86" y2="680" stroke="#5e35b1" stroke-width="2" marker-end="url(#af-rail)"/>
+
+  <rect x="10" y="12" width="152" height="86" rx="10" fill="#ede7f6" stroke="#c3b2e6"/>
+  <text x="86" y="45" text-anchor="middle" font-size="12.4" font-weight="700" fill="#5e35b1">ระยะ 0</text>
+  <text x="86" y="65" text-anchor="middle" font-size="12.4" font-weight="700" fill="#1b2027">ตัวตนโรงพยาบาล</text>
+  <text x="86" y="83" text-anchor="middle" font-size="10.6" fill="#5b6572">ทำครั้งเดียว</text>
+
+  <rect x="182" y="12" width="400" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="183" y="26" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="198" y="38" font-size="12.6" font-weight="600" fill="#1b2027">กรอกข้อมูลโรงพยาบาล</text>
+  <text x="198" y="57" font-size="11.2" fill="#5b6572">รหัส รพ. · ชื่อไทย/อังกฤษ · เลขผู้เสียภาษี · รหัสประกันสังคม</text>
+  <text x="198" y="73" font-size="11.2" fill="#5b6572">รอบปีงบประมาณ · ที่อยู่ · ตราสัญลักษณ์</text>
+  <rect x="198" y="82" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="208" y="90" font-size="10.4" font-weight="600" fill="#5e35b1">ผู้ดูแลระบบ › ข้อมูลโรงพยาบาล</text>
+
+  <rect x="606" y="12" width="400" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="607" y="26" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="622" y="38" font-size="12.6" font-weight="600" fill="#1b2027">ตั้งรหัสหลักของกลุ่มผู้ดูแลระบบ</text>
+  <text x="622" y="57" font-size="11.2" fill="#5b6572">แผนก/ภาควิชาที่สังกัด · สาขาแพทย์ · อาคารโรงพยาบาล</text>
+  <text x="622" y="73" font-size="11.2" fill="#5b6572">ทุกเมนูข้างล่างจะดึงไปใช้เป็นตัวเลือก</text>
+  <rect x="622" y="82" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="632" y="90" font-size="10.4" font-weight="600" fill="#5e35b1">ผู้ดูแลระบบ › รหัสหลัก</text>
+
+  <rect x="10" y="124" width="152" height="86" rx="10" fill="#ede7f6" stroke="#c3b2e6"/>
+  <text x="86" y="157" text-anchor="middle" font-size="12.4" font-weight="700" fill="#5e35b1">ระยะ 1</text>
+  <text x="86" y="177" text-anchor="middle" font-size="12.4" font-weight="700" fill="#1b2027">โครงสร้างสถานที่</text>
+  <text x="86" y="195" text-anchor="middle" font-size="10.6" fill="#5b6572">งานหนักที่สุด</text>
+
+  <rect x="182" y="124" width="400" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="183" y="138" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="198" y="150" font-size="12.6" font-weight="600" fill="#1b2027">สร้างคลินิก · ห้องตรวจ · คลัง · จุดบริการ</text>
+  <text x="198" y="169" font-size="11.2" fill="#5b6572">ผูกประเภท แผนก อาคาร ชั้น หัวหน้าสถานที่</text>
+  <text x="198" y="185" font-size="11.2" fill="#5b6572">ตั้งเวลาให้บริการ · ระบบคิว · ค่าใช้จ่ายประจำสถานที่</text>
+  <rect x="198" y="194" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="208" y="202" font-size="10.4" font-weight="600" fill="#5e35b1">ผู้ดูแลระบบ › รหัสสถานที่ในโรงพยาบาล</text>
+
+  <line x1="582" y1="167" x2="606" y2="167" stroke="#9aa4b1" stroke-width="2" marker-end="url(#af-step)"/>
+  <rect x="606" y="124" width="400" height="86" rx="9" fill="#f7f8f8" stroke="#c6cad0" stroke-width="1.6"/>
+  <text x="622" y="150" font-size="12.6" font-weight="600" fill="#1b2027">ผลที่ตามมาทันที</text>
+  <text x="622" y="169" font-size="11.2" fill="#5b6572">หน่วยงานพร้อมให้ผูกกับผู้ใช้ · เวชระเบียนส่งตรวจได้</text>
+  <text x="622" y="185" font-size="11.2" fill="#5b6572">ห้องการเงินตั้งจุดเก็บเงินได้ · คลังเปิดเบิกจ่ายได้</text>
+  <text x="622" y="201" font-size="10.6" fill="#8b95a3">ถ้ายังไม่มีสถานที่ โมดูลอื่นแทบเริ่มงานไม่ได้</text>
+
+  <rect x="10" y="236" width="152" height="86" rx="10" fill="#ede7f6" stroke="#c3b2e6"/>
+  <text x="86" y="269" text-anchor="middle" font-size="12.4" font-weight="700" fill="#5e35b1">ระยะ 2</text>
+  <text x="86" y="289" text-anchor="middle" font-size="12.4" font-weight="700" fill="#1b2027">เลขที่เอกสาร</text>
+  <text x="86" y="307" text-anchor="middle" font-size="10.6" fill="#5b6572">2 เมนูต่อกัน</text>
+
+  <rect x="182" y="236" width="400" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="183" y="250" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="198" y="262" font-size="12.6" font-weight="600" fill="#1b2027">ออกแบบ “รูปแบบ” เลขที่เอกสาร</text>
+  <text x="198" y="281" font-size="11.2" fill="#5b6572">ต่อบล็อกเป็นแถว: ค่าคงที่ · ตัวแปร · วันที่ · Running</text>
+  <text x="198" y="297" font-size="11.2" fill="#5b6572">เลือกปีปฏิทิน/ปีงบประมาณ และรอบรีเซ็ตเลข</text>
+  <rect x="198" y="306" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="208" y="314" font-size="10.4" font-weight="600" fill="#5e35b1">ผู้ดูแลระบบ › รูปแบบเลขที่เอกสาร</text>
+
+  <line x1="582" y1="279" x2="606" y2="279" stroke="#9aa4b1" stroke-width="2" marker-end="url(#af-step)"/>
+  <rect x="606" y="236" width="400" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="607" y="250" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="622" y="262" font-size="12.6" font-weight="600" fill="#1b2027">จับคู่รูปแบบเข้ากับเอกสารแต่ละชนิด</text>
+  <text x="622" y="281" font-size="11.2" fill="#5b6572">ใบเสร็จ · ใบแจ้งหนี้ · ใบสั่งยา · ใบส่งตรวจ ฯลฯ</text>
+  <text x="622" y="297" font-size="11.2" fill="#5b6572">ตั้ง “เลขที่ล่าสุด” ให้ต่อจากระบบเดิม</text>
+  <rect x="622" y="306" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="632" y="314" font-size="10.4" font-weight="600" fill="#5e35b1">ผู้ดูแลระบบ › กำหนดเลขที่เอกสาร</text>
+
+  <rect x="10" y="348" width="152" height="86" rx="10" fill="#ede7f6" stroke="#c3b2e6"/>
+  <text x="86" y="381" text-anchor="middle" font-size="12.4" font-weight="700" fill="#5e35b1">ระยะ 3</text>
+  <text x="86" y="401" text-anchor="middle" font-size="12.4" font-weight="700" fill="#1b2027">แบบฟอร์ม · รายงาน</text>
+  <text x="86" y="419" text-anchor="middle" font-size="10.6" fill="#5b6572">ทำขนานกันได้</text>
+
+  <rect x="182" y="348" width="400" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="183" y="362" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="198" y="374" font-size="12.6" font-weight="600" fill="#1b2027">อัปโหลดแบบฟอร์มที่ใช้พิมพ์</text>
+  <text x="198" y="393" font-size="11.2" fill="#5b6572">ไฟล์ .mrt + .sql + พารามิเตอร์ · ผูกกับชื่อเอกสาร</text>
+  <text x="198" y="409" font-size="11.2" fill="#5b6572">เช่น ใบสั่งยา ฉลากยา ใบรับรองแพทย์</text>
+  <rect x="198" y="418" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="208" y="426" font-size="10.4" font-weight="600" fill="#5e35b1">ผู้ดูแลระบบ › แบบฟอร์มในระบบ</text>
+
+  <rect x="606" y="348" width="400" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="607" y="362" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="622" y="374" font-size="12.6" font-weight="600" fill="#1b2027">อัปโหลดรายงานที่ใช้ดึงข้อมูล</text>
+  <text x="622" y="393" font-size="11.2" fill="#5b6572">ไฟล์ .mrt + .sql + พารามิเตอร์</text>
+  <text x="622" y="409" font-size="11.2" fill="#5b6572">ระบุ “ระบบงาน” และ “กลุ่มผู้ใช้งาน” ที่เห็นรายงานนี้</text>
+  <rect x="622" y="418" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="632" y="426" font-size="10.4" font-weight="600" fill="#5e35b1">ผู้ดูแลระบบ › รายงานในระบบ</text>
+
+  <rect x="10" y="460" width="152" height="86" rx="10" fill="#ede7f6" stroke="#c3b2e6"/>
+  <text x="86" y="493" text-anchor="middle" font-size="12.4" font-weight="700" fill="#5e35b1">ระยะ 4</text>
+  <text x="86" y="513" text-anchor="middle" font-size="12.4" font-weight="700" fill="#1b2027">พฤติกรรมระบบ</text>
+  <text x="86" y="531" text-anchor="middle" font-size="10.6" fill="#5b6572">13 แท็บ</text>
+
+  <rect x="182" y="460" width="824" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="183" y="474" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="198" y="486" font-size="12.6" font-weight="600" fill="#1b2027">เปิด/ปิดพฤติกรรมรายโมดูล และตั้งนโยบายรหัสผ่าน</text>
+  <text x="198" y="505" font-size="11.2" fill="#5b6572">เวชระเบียน · EMR · ทันตกรรม · การเรียนการสอน · ห้องยา · คลังพัสดุ · ห้องการเงิน · รังสี · แล็บ · หอผู้ป่วยใน · บุคลากร · ผู้ดูแลระบบ · PHR</text>
+  <text x="198" y="521" font-size="11.2" fill="#5b6572">ต้องทำหลังระยะ 1–3 เพราะหลายช่องต้องเลือก “สถานที่” “แบบฟอร์ม” “สิทธิการรักษา” ที่สร้างไว้แล้ว</text>
+  <rect x="198" y="530" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="208" y="538" font-size="10.4" font-weight="600" fill="#5e35b1">ผู้ดูแลระบบ › ตั้งค่าระบบต่างๆ</text>
+
+  <rect x="10" y="572" width="152" height="86" rx="10" fill="#ede7f6" stroke="#c3b2e6"/>
+  <text x="86" y="605" text-anchor="middle" font-size="12.4" font-weight="700" fill="#5e35b1">ระยะ 5</text>
+  <text x="86" y="625" text-anchor="middle" font-size="12.4" font-weight="700" fill="#1b2027">คนและสิทธิ</text>
+  <text x="86" y="643" text-anchor="middle" font-size="10.6" fill="#5b6572">ทำเป็นรายคน</text>
+
+  <rect x="182" y="572" width="258" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="183" y="586" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="198" y="598" font-size="12.6" font-weight="600" fill="#1b2027">สร้างกลุ่มผู้ใช้งาน</text>
+  <text x="198" y="617" font-size="11.2" fill="#5b6572">ติ๊กสิทธิรายเมนู</text>
+  <text x="198" y="633" font-size="11.2" fill="#5b6572">เพิ่ม/ดู/แก้ไข/ลบ/ส่งออก</text>
+  <rect x="198" y="642" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="208" y="650" font-size="10.4" font-weight="600" fill="#5e35b1">› กลุ่มผู้ใช้งาน</text>
+
+  <line x1="440" y1="615" x2="464" y2="615" stroke="#9aa4b1" stroke-width="2" marker-end="url(#af-step)"/>
+  <rect x="464" y="572" width="258" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="465" y="586" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="480" y="598" font-size="12.6" font-weight="600" fill="#1b2027">รับคำขอที่อนุมัติแล้ว</text>
+  <text x="480" y="617" font-size="11.2" fill="#5b6572">คำขอมาจากหน่วยงานต้นสังกัด</text>
+  <text x="480" y="633" font-size="11.2" fill="#5b6572">ผ่านสายอนุมัติเรียบร้อย</text>
+  <rect x="480" y="642" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="490" y="650" font-size="10.4" font-weight="600" fill="#5e35b1">› คำขอผู้ใช้งาน</text>
+
+  <line x1="722" y1="615" x2="746" y2="615" stroke="#9aa4b1" stroke-width="2" marker-end="url(#af-step)"/>
+  <rect x="746" y="572" width="258" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="747" y="586" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="762" y="598" font-size="12.6" font-weight="600" fill="#1b2027">เปิดบัญชีและผูกสิทธิ</text>
+  <text x="762" y="617" font-size="11.2" fill="#5b6572">Username · กลุ่มผู้ใช้งาน</text>
+  <text x="762" y="633" font-size="11.2" fill="#5b6572">หน่วยงาน · ช่วงวันที่</text>
+  <rect x="762" y="642" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="772" y="650" font-size="10.4" font-weight="600" fill="#5e35b1">› ผู้ใช้งาน</text>
+
+  <rect x="10" y="684" width="152" height="86" rx="10" fill="#ede7f6" stroke="#c3b2e6"/>
+  <text x="86" y="717" text-anchor="middle" font-size="12.4" font-weight="700" fill="#5e35b1">ระยะ 6</text>
+  <text x="86" y="737" text-anchor="middle" font-size="12.4" font-weight="700" fill="#1b2027">เชื่อมระบบภายนอก</text>
+  <text x="86" y="755" text-anchor="middle" font-size="10.6" fill="#5b6572">เท่าที่จำเป็น</text>
+
+  <rect x="182" y="684" width="400" height="86" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="183" y="698" width="5" height="58" rx="2.5" fill="#5e35b1"/>
+  <text x="198" y="710" font-size="12.6" font-weight="600" fill="#1b2027">ออก Personal Access Token</text>
+  <text x="198" y="729" font-size="11.2" fill="#5b6572">ผูกกับผู้ใช้หนึ่งคน · ตั้งวันหมดอายุ</text>
+  <text x="198" y="745" font-size="11.2" fill="#5b6572">คัดลอกค่า Token ได้ครั้งเดียวตอนสร้าง</text>
+  <rect x="198" y="754" width="5" height="5" rx="1" fill="#5e35b1" opacity=".75"/>
+  <text x="208" y="762" font-size="10.4" font-weight="600" fill="#5e35b1">ผู้ดูแลระบบ › Personal Access Token</text>
+
+  <line x1="582" y1="727" x2="606" y2="727" stroke="#9aa4b1" stroke-width="2" marker-end="url(#af-step)"/>
+  <rect x="606" y="684" width="400" height="86" rx="9" fill="#e9f6ea" stroke="#8cc190" stroke-width="1.6"/>
+  <rect x="607" y="698" width="5" height="58" rx="2.5" fill="#2e7d32"/>
+  <text x="622" y="710" font-size="12.6" font-weight="600" fill="#1b2027">ระบบพร้อมใช้งานเต็มรูปแบบ</text>
+  <text x="622" y="729" font-size="11.2" fill="#5b6572">ผู้ใช้เข้าระบบได้ · เอกสารออกเลขได้ · รายงานดึงได้</text>
+  <text x="622" y="745" font-size="11.2" fill="#5b6572">ระบบภายนอกเรียก API ได้ตามสิทธิของเจ้าของ Token</text>
+</svg>
+  </div>
+
+  <div class="note note--warn">
+    <b class="note__label">ข้ามลำดับแล้วจะเจออะไร</b>
+    <p><b>ข้ามระยะ 0</b> → สร้างสถานที่ไม่ได้ เพราะช่อง “แผนก” และ “ตึก” ไม่มีตัวเลือก<br>
+       <b>ข้ามระยะ 1</b> → สร้างผู้ใช้ไม่ได้ เพราะต้องเลือก “คลินิก/หน่วยงาน” ให้ทุกกลุ่มผู้ใช้งาน<br>
+       <b>ข้ามระยะ 2</b> → บันทึกเอกสารแล้วเลขที่ไม่ออก หรือออกซ้ำกับระบบเดิม<br>
+       <b>ข้ามระยะ 3</b> → หน้าตั้งค่าระบบเลือก “แบบฟอร์ม” ไม่ได้ และปุ่มพิมพ์ในโมดูลอื่นไม่มีอะไรให้พิมพ์<br>
+       <b>ข้ามระยะ 5 ขั้นกลุ่มผู้ใช้งาน</b> → เปิดบัญชีให้คนได้ แต่เขาเข้าระบบมาแล้วไม่เห็นเมนูอะไรเลย</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="dep">ตารางลำดับและสิ่งที่ต้องมีก่อน</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ลำดับ</th><th>เมนู</th><th>ต้องมีอะไรก่อน</th><th>ถ้าทำแล้วปลดล็อกอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><b>1</b></td><td>ข้อมูลโรงพยาบาล</td><td>ไม่มี — เริ่มได้เลย</td><td>หัวกระดาษเอกสารทุกใบ · เลขผู้เสียภาษีบนใบเสร็จ · รอบปีงบประมาณที่เลขที่เอกสารใช้</td></tr>
+      <tr><td><b>2</b></td><td>รหัสหลัก (แผนก · สาขาแพทย์ · อาคาร)</td><td>ไม่มี</td><td>ช่อง “แผนก” และ “ตึก” ในเมนูสถานที่ · ช่องสังกัดในข้อมูลบุคลากร</td></tr>
+      <tr><td><b>3</b></td><td>รหัสสถานที่ในโรงพยาบาล</td><td>รหัสหลัก (แผนก อาคาร) + ประเภทงานจากรหัสหลักของคลังผู้ป่วย</td><td>ผูกผู้ใช้เข้าหน่วยงาน · เวชระเบียนส่งตรวจ · ห้องการเงินตั้งจุดเก็บเงิน · คลังเบิกจ่าย · ระบบคิว</td></tr>
+      <tr><td><b>4</b></td><td>รูปแบบเลขที่เอกสาร</td><td>ข้อมูลโรงพยาบาล (ถ้าจะใช้ปีงบประมาณ)</td><td>เมนูกำหนดเลขที่เอกสารมีรูปแบบให้เลือก</td></tr>
+      <tr><td><b>5</b></td><td>กำหนดเลขที่เอกสาร</td><td>รูปแบบเลขที่เอกสารอย่างน้อย 1 รูปแบบ</td><td>ทุกโมดูลออกเลขที่เอกสารได้จริง</td></tr>
+      <tr><td><b>6</b></td><td>แบบฟอร์มในระบบ</td><td>ไฟล์ .mrt และ .sql จากทีมพัฒนา/ทีมรายงาน</td><td>ปุ่มพิมพ์ในโมดูลต่าง ๆ · ดรอปดาวน์ “แบบฟอร์ม” ในหน้าตั้งค่าระบบ</td></tr>
+      <tr><td><b>7</b></td><td>รายงานในระบบ</td><td>ไฟล์ .mrt/.sql + กลุ่มผู้ใช้งาน (ถ้าจะจำกัดผู้เห็น)</td><td>เมนูรายงานของแต่ละโมดูลมีรายการให้เลือก</td></tr>
+      <tr><td><b>8</b></td><td>ตั้งค่าระบบต่างๆ</td><td>สถานที่ · แบบฟอร์ม · สิทธิการรักษา · กลุ่มแพทย์เฉพาะทาง</td><td>พฤติกรรมของทุกโมดูล เช่น พิมพ์อัตโนมัติ นโยบายรหัสผ่าน เล่มที่ใบเสร็จ</td></tr>
+      <tr><td><b>9</b></td><td>กลุ่มผู้ใช้งาน</td><td>ไม่มี (แต่ควรทำหลังเมนูอื่นเสร็จ เพื่อจะได้ติ๊กสิทธิครบ)</td><td>ผูกกับผู้ใช้ · กำหนดว่าใครเห็นเมนูไหน · กำหนดว่าใครเห็นรายงานไหน</td></tr>
+      <tr><td><b>10</b></td><td>คำขอผู้ใช้งาน</td><td>ข้อมูลบุคลากรจากโมดูลบริหารบุคลากร + คำขอผ่านการอนุมัติครบทุกขั้น</td><td>รายชื่อรอเปิดบัญชี</td></tr>
+      <tr><td><b>11</b></td><td>ผู้ใช้งาน</td><td>กลุ่มผู้ใช้งาน + รหัสสถานที่ + นโยบายรหัสผ่าน</td><td>คนเข้าใช้ระบบได้จริง</td></tr>
+      <tr><td><b>12</b></td><td>Personal Access Token</td><td>ผู้ใช้งานที่จะเป็นเจ้าของ Token</td><td>ระบบภายนอกเรียก API ได้</td></tr>
+      <tr><td><b>13</b></td><td>รายงาน</td><td>รายงานในระบบ + สิทธิดู/ส่งออก</td><td>ดึงข้อมูลตรวจสอบย้อนหลัง</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <b class="note__label">งานที่ไม่ได้อยู่ในเมนูผู้ดูแลระบบ แต่ต้องรอ</b>
+    <p>รหัสหลักของ<b>โมดูลอื่น</b> (รหัสยา รหัสค่าใช้จ่าย รหัสแล็บ สิทธิการรักษา ประเภทงาน)
+       อยู่ใต้เมนู “รหัสหลัก” ของโมดูลนั้น ๆ ไม่ได้อยู่ใต้ผู้ดูแลระบบ
+       ผู้ดูแลระบบมักเป็นคนช่วยตั้งให้ในช่วงเปิดระบบ แต่ต้องเข้าไปทำที่เมนูของโมดูลนั้นโดยตรง
+       และต้องเสร็จก่อนระยะ 4 เพราะหน้าตั้งค่าระบบมีช่องที่ต้องเลือก “สิทธิหลักของระบบ” และ “กลุ่มแพทย์เฉพาะทาง”</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m1">1 · ข้อมูลโรงพยาบาล</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/hospital-information</code></span>
+    <span class="role"><b>ทำได้:</b> ดู · แก้ไข (ไม่มีเพิ่ม/ลบ — มีระเบียนเดียว)</span>
+    <span class="role"><b>ความถี่:</b> ตั้งครั้งแรก แล้วแก้เมื่อข้อมูลเปลี่ยน</span>
+  </div>
+
+  <p><b>ใช้ตอนไหน</b> — ทำเป็นอย่างแรกสุดตอนเปิดระบบ และกลับมาแก้เมื่อโรงพยาบาลเปลี่ยนที่อยู่
+     เปลี่ยนเบอร์ เปลี่ยนตราสัญลักษณ์ หรือเปลี่ยนรอบปีงบประมาณ</p>
+
+  <p><b>ต้องมีก่อน</b> — ไม่มี เริ่มได้ทันที</p>
+
+  <ol class="steps steps--purple">
+    <li><b>กรอกข้อมูลระบุตัวตน</b>
+      <p>รหัสโรงพยาบาล · ชื่อไทย · ชื่ออังกฤษ · ชื่อย่อ · สาขา ·
+         หมายเลขผู้เสียภาษี · หมายเลขประจำโรงพยาบาล สรพ. · รหัสโรงพยาบาลประกันสังคม</p>
+      <p class="small">รหัสโรงพยาบาลและรหัสประกันสังคมถูกนำไปใช้ตอนส่งเบิก ถ้ากรอกผิดจะถูกปฏิเสธที่ปลายทาง</p>
+    </li>
+    <li><b>อัปโหลดตราสัญลักษณ์</b>
+      <p>ไฟล์ภาพที่อัปโหลดตรงนี้จะไปขึ้นบนหัวเอกสารที่พิมพ์ออกจากระบบ</p>
+    </li>
+    <li><b>ตั้งรอบปีงบประมาณ</b>
+      <p>เลือกเดือนเริ่มต้นและเดือนสิ้นสุด · ค่านี้ถูกใช้โดยเมนู <b>รูปแบบเลขที่เอกสาร</b>
+         เมื่อเลือกประเภทปีเป็น “ปีงบประมาณ”</p>
+    </li>
+    <li><b>กรอกที่อยู่และช่องทางติดต่อ</b>
+      <p>เลขที่ · อาคาร · หมู่ · ซอย · ถนน · จังหวัด/อำเภอ/ตำบล · รหัสไปรษณีย์ · โทรศัพท์ · แฟกซ์ · อีเมล</p>
+    </li>
+    <li><b>บันทึก</b>
+      <p>หน้านี้มีตัวกันออกจากหน้าโดยยังไม่บันทึก ถ้าแก้แล้วกดออก ระบบจะเตือนก่อน</p>
+    </li>
+  </ol>
+
+  <div class="out">
+    <b class="outlabel">สิ่งที่ได้</b>
+    <ul>
+      <li>หัวกระดาษของเอกสารทุกใบที่พิมพ์จากระบบ</li>
+      <li>เลขผู้เสียภาษีและที่อยู่บนใบเสร็จ/ใบแจ้งหนี้</li>
+      <li>รอบปีงบประมาณที่เลขที่เอกสารและรายงานอ้างอิง</li>
+    </ul>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m2">2 · รหัสหลัก</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/main-code</code></span>
+    <span class="role"><b>ทำได้:</b> เพิ่ม · ดู · แก้ไข · ลบ</span>
+    <span class="role"><b>ครอบคลุม:</b> รหัสหลักของทุกโมดูล</span>
+    <span class="role"><b>ความถี่:</b> ตั้งครั้งแรก แล้วแก้นาน ๆ ครั้ง</span>
+  </div>
+
+  <p>เมนูนี้เป็นที่เก็บ<b>รายการตัวเลือก</b>ที่เมนูอื่นเอาไปใช้เป็นดรอปดาวน์
+     และเป็น<b>ศูนย์รวมรหัสหลักของทุกโมดูล</b> ไม่ใช่เฉพาะของงานผู้ดูแลระบบ —
+     รวมแล้วมีมากกว่า 130 ตารางให้ดูแล</p>
+
+  <p>กลุ่มที่ชื่อ <b>ผู้ดูแลระบบ</b> เองมีไม่กี่ตาราง แต่เป็นตัวที่อยู่ล่างสุดของห่วงโซ่ —
+     ถ้าไม่มี เมนูถัดไปจะเปิดใช้งานไม่ได้เลย</p>
+
+  <p><b>ใช้ตอนไหน</b> — ทำพร้อมกับข้อมูลโรงพยาบาล ก่อนสร้างรหัสสถานที่และก่อนบันทึกข้อมูลบุคลากร</p>
+
+  <h3>2.1 เมนูนี้เป็นศูนย์รวมรหัสหลักของ “ทุกโมดูล”</h3>
+
+  <p>จุดที่เข้าใจผิดกันบ่อย — <b>รหัสหลัก</b> ใต้ผู้ดูแลระบบไม่ได้มีเฉพาะรหัสของงานผู้ดูแลระบบ
+     แต่เป็น<b>ประตูเข้าถึงรหัสหลักของทุกโมดูลในระบบ</b> · เปิดเมนูนี้แล้วแถบด้านซ้ายจะเปลี่ยนเป็นรายชื่อโมดูล
+     กดเลือกโมดูล แล้วจึงเลือกตารางที่ต้องการ</p>
+
+  <ul class="flow">
+    <li><b>เปิด รหัสหลัก</b><span>แถบซ้ายเปลี่ยนเป็นรายชื่อโมดูล</span></li>
+    <li class="is-lis"><b>เลือกโมดูล</b><span>เช่น เวชระเบียน · ห้องจ่ายยา · ห้องการเงิน</span></li>
+    <li><b>เลือกตาราง</b><span>เช่น ประเภทนายจ้าง</span></li>
+    <li class="is-done"><b>เพิ่ม/แก้ไขรายการ</b><span>หน้าตาเหมือนกันทุกตาราง</span></li>
+  </ul>
+
+  <p>เส้นทางที่เห็นบนหัวข้อจะเป็นแบบนี้ —
+     <span class="menuname">ประเภทนายจ้าง <i>›</i> ผู้ดูแลระบบ <i>›</i> รหัสหลัก <i>›</i> เวชระเบียน</span>
+     อ่านจากขวาไปซ้าย: อยู่ในกลุ่ม <b>เวชระเบียน</b> ใต้เมนู <b>รหัสหลัก</b> ของ <b>ผู้ดูแลระบบ</b>
+     และตารางที่เปิดอยู่คือ <b>ประเภทนายจ้าง</b></p>
+
+  <div class="note note--warn">
+    <b class="note__label">สิทธิชุดเดียว ครอบรหัสหลักทั้งระบบ</b>
+    <p>เข้าทางเมนูนี้ ระบบใช้สิทธิของ<b>ผู้ดูแลระบบ</b>ชุดเดียว
+       (<code>adminmodule.adminmastercode.*</code>) กับรหัสหลักของทุกโมดูล —
+       ใครมีสิทธิ “แก้ไข” ที่นี่ จะแก้รหัสยา รหัสค่าใช้จ่าย รหัสแล็บ ของโมดูลอื่นได้ทั้งหมด
+       แม้จะไม่มีสิทธิในโมดูลนั้นเลยก็ตาม<br>
+       ถ้าเข้าทางเมนู <b>รหัสหลัก</b> ของโมดูลนั้นโดยตรง ระบบจะใช้สิทธิของโมดูลนั้นแทน
+       (เช่น <code>medicalrecordmodule.medicalrecordmastercode.*</code>)<br>
+       <b>ข้อแนะนำ:</b> ให้สิทธิรหัสหลักของผู้ดูแลระบบเฉพาะทีมไอทีที่ดูแลระบบจริง ๆ
+       ส่วนหน่วยงานที่ต้องดูแลรหัสของตัวเอง ให้สิทธิผ่านเมนูรหัสหลักของโมดูลนั้นแทน</p>
+  </div>
+
+  <p>หัวข้อ <a href="#m2">2.2–2.5</a> ด้านล่างอธิบายเฉพาะกลุ่ม <b>ผู้ดูแลระบบ</b> ซึ่งเป็นกลุ่มที่ต้องตั้งก่อนใคร ·
+     ส่วนรายการทั้งหมดของทุกโมดูลอยู่ที่หัวข้อ <b>2.6</b></p>
+
+
+  <h3>2.2 มีอะไรบ้าง และใครเอาไปใช้ต่อ</h3>
+
+  <div style="overflow-x:auto;margin:0 0 10px;padding:4px 0">
+<svg viewBox="0 0 1020 300" role="img"
+     aria-label="แผนภาพรหัสหลักกลุ่มผู้ดูแลระบบ และปลายทางที่นำไปใช้"
+     font-family="IBM Plex Sans Thai, Noto Sans Thai, Sarabun, Segoe UI, sans-serif"
+     style="width:100%;min-width:880px;height:auto">
+  <defs>
+    <marker id="mc-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#9aa4b1"/></marker>
+    <marker id="mc-p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5e35b1"/></marker>
+  </defs>
+
+  <text x="130" y="14" text-anchor="middle" font-size="11" font-weight="700" fill="#8b95a3">กลุ่มผู้ดูแลระบบ</text>
+  <text x="715" y="14" text-anchor="middle" font-size="11" font-weight="700" fill="#8b95a3">ปลายทางที่นำไปใช้</text>
+
+  <rect x="10" y="20" width="240" height="76" rx="9" fill="#ede7f6" stroke="#a68fd4" stroke-width="1.6"/>
+  <rect x="11" y="32" width="5" height="52" rx="2.5" fill="#5e35b1"/>
+  <text x="26" y="46" font-size="12.4" font-weight="700" fill="#1b2027">แผนก/ภาควิชาที่สังกัด</text>
+  <text x="26" y="66" font-size="10.8" fill="#5b6572">TBM_DEPARTMENTS</text>
+  <text x="26" y="84" font-size="10.8" font-weight="600" fill="#5e35b1">ตั้งเป็นอันดับแรก</text>
+
+  <line x1="130" y1="96" x2="130" y2="114" stroke="#5e35b1" stroke-width="2" marker-end="url(#mc-p)"/>
+  <text x="140" y="110" font-size="10.4" font-weight="600" fill="#5e35b1">แผนกที่รับ/ส่งตัว</text>
+
+  <rect x="10" y="116" width="240" height="76" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="11" y="128" width="5" height="52" rx="2.5" fill="#5e35b1"/>
+  <text x="26" y="142" font-size="12.4" font-weight="700" fill="#1b2027">สาขาแพทย์</text>
+  <text x="26" y="162" font-size="10.8" fill="#5b6572">TBM_DOC_SPECIALTIES</text>
+  <text x="26" y="180" font-size="10.8" fill="#5b6572">อ้างถึงแผนก — ต้องมีแผนกก่อน</text>
+
+  <rect x="10" y="212" width="240" height="76" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="11" y="224" width="5" height="52" rx="2.5" fill="#5e35b1"/>
+  <text x="26" y="238" font-size="12.4" font-weight="700" fill="#1b2027">อาคารโรงพยาบาล</text>
+  <text x="26" y="258" font-size="10.8" fill="#5b6572">TBM_BUILDINGS</text>
+  <text x="26" y="276" font-size="10.8" fill="#5b6572">อิสระ ทำก่อนหลังก็ได้</text>
+
+  <line x1="250" y1="58" x2="416" y2="58" stroke="#9aa4b1" stroke-width="2" marker-end="url(#mc-a)"/>
+  <line x1="250" y1="154" x2="416" y2="154" stroke="#9aa4b1" stroke-width="2" marker-end="url(#mc-a)"/>
+  <line x1="250" y1="250" x2="416" y2="250" stroke="#9aa4b1" stroke-width="2" marker-end="url(#mc-a)"/>
+
+  <rect x="420" y="20" width="590" height="76" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <text x="436" y="42" font-size="11.8" font-weight="600" fill="#1b2027">รหัสสถานที่ในโรงพยาบาล — ช่อง “แผนก” เป็นช่อง<tspan font-weight="700" fill="#b3261e">บังคับ</tspan> · ข้อมูลบุคลากร (สังกัด) · ตำแหน่ง</text>
+  <text x="436" y="62" font-size="11.2" fill="#5b6572">การรับไว้เป็นผู้ป่วยใน (แผนกที่รับ) · การส่งต่อผู้ป่วย · ข่าวประชาสัมพันธ์ · แบบประเมิน</text>
+  <text x="436" y="82" font-size="10.8" fill="#8b95a3">ถ้าไม่มีแผนก จะสร้างสถานที่ไม่ได้แม้แต่แห่งเดียว และบันทึกบุคลากรไม่ครบ</text>
+
+  <rect x="420" y="116" width="590" height="76" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <text x="436" y="138" font-size="11.8" font-weight="600" fill="#1b2027">สาขาความเชี่ยวชาญของบุคลากร · ยาที่ผูกกับสาขาแพทย์ · รายการยาที่ใช้ประจำของสาขา</text>
+  <text x="436" y="158" font-size="11.2" fill="#5b6572">ใช้จัดตารางปฏิบัติงาน จัดกลุ่มแพทย์ และกรองรายการยาให้ตรงกับสาขา</text>
+  <text x="436" y="178" font-size="10.8" fill="#8b95a3">ไม่ใช่ช่องบังคับของหน้าจอไหน แต่ถ้าไม่มี จะกรองยาและจัดตารางตามสาขาไม่ได้</text>
+
+  <rect x="420" y="212" width="590" height="76" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <text x="436" y="234" font-size="11.8" font-weight="600" fill="#1b2027">รหัสสถานที่ในโรงพยาบาล — ช่อง “ตึก” (ไม่บังคับ) คู่กับช่อง “ชั้น” ที่พิมพ์เอง</text>
+  <text x="436" y="254" font-size="11.2" fill="#5b6572">ใช้บอกทางผู้ป่วยและใช้บนป้าย/ใบนัด</text>
+  <text x="436" y="274" font-size="10.8" fill="#8b95a3">เว้นว่างได้ แต่ควรใส่ ไม่งั้นผู้ป่วยหาห้องตรวจไม่เจอ</text>
+</svg>
+  </div>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>รหัสหลัก</th><th>ช่องที่ต้องกรอก</th><th>ตัวอย่างข้อมูล</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>แผนก/ภาควิชาที่สังกัด</b><br><span class="small">ลำดับที่ 1</span></td>
+        <td><b>ชื่อ</b> (บังคับ ไม่เกิน 250 ตัวอักษร) · <b>ชื่อ (ภาษาอังกฤษ)</b> (บังคับ) ·
+            <b>สถานะการใช้งาน</b> · <b>Mapping Code</b> (ไม่บังคับ ไม่เกิน 100 ตัวอักษร)</td>
+        <td>ภาควิชาศัลยศาสตร์ · ภาควิชาอายุรศาสตร์ · ฝ่ายการพยาบาล · งานเวชระเบียน</td>
+      </tr>
+      <tr>
+        <td><b>สาขาแพทย์</b><br><span class="small">ลำดับที่ 2</span></td>
+        <td><b>ชื่อ</b> (บังคับ) · <b>ชื่อ (ภาษาอังกฤษ)</b> (บังคับ) ·
+            <b>แผนกที่รับ/ส่งตัว</b> (เลือกจากแผนกที่สร้างไว้ · ไม่บังคับ) · <b>สถานะการใช้งาน</b></td>
+        <td>อายุรกรรม · ศัลยกรรมทั่วไป · กุมารเวชกรรม · เวชศาสตร์ฉุกเฉิน</td>
+      </tr>
+      <tr>
+        <td><b>อาคารโรงพยาบาล</b><br><span class="small">ทำเมื่อไรก็ได้</span></td>
+        <td><b>ชื่อ</b> (บังคับ ไม่เกิน 255 ตัวอักษร) · <b>ชื่อ (ภาษาอังกฤษ)</b> (บังคับ) ·
+            <b>สถานะการใช้งาน</b></td>
+        <td>อาคารผู้ป่วยนอก · อาคารเฉลิมพระเกียรติ · อาคารอุบัติเหตุฉุกเฉิน</td>
+      </tr>
+      <tr>
+        <td><b>Print Prefix</b><br><span class="small">มีในเวอร์ชันใหม่</span></td>
+        <td><b>รหัส</b> · <b>ชื่อ</b> · <b>ชื่อ (ภาษาอังกฤษ)</b> · <b>สถานะการใช้งาน</b></td>
+        <td>คำนำหน้าที่ใช้กับแบบฟอร์มตอนพิมพ์ — ผูกกับเมนู <b>แบบฟอร์มในระบบ</b></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--warn">
+    <b class="note__label">ไม่มีช่อง “รหัส” ให้กรอกเอง</b>
+    <p>ทั้งสามตารางใช้เลขลำดับที่ระบบสร้างให้อัตโนมัติเป็นรหัส
+       สิ่งที่กรอกมีแค่ชื่อไทย ชื่ออังกฤษ และสถานะ · ถ้าอยากเก็บรหัสเดิมจากระบบเก่าไว้
+       ให้ใส่ที่ช่อง <b>Mapping Code</b> ของตารางแผนก (มีเฉพาะตารางนี้)</p>
+  </div>
+
+  <h3>2.3 หน้าจอทำงานอย่างไร</h3>
+
+  <p>หน้ารหัสหลักเป็นหน้าจอ<b>แบบเดียวกันทุกโมดูล</b> — คอลัมน์และช่องกรอกสร้างขึ้นเองตามโครงสร้างของแต่ละตาราง
+     เพราะฉะนั้นวิธีใช้เหมือนกันหมด รู้ที่เดียวใช้ได้ทุกที่</p>
+
+  <ol class="steps steps--purple">
+    <li><b>เปิด ผู้ดูแลระบบ › รหัสหลัก แล้วเลือกตาราง</b>
+      <p>หน้าจอแสดงรายการรหัสหลักของโมดูลนี้ กดเข้าไปทีละตาราง</p>
+    </li>
+    <li><b>ดูรายการที่มีอยู่</b>
+      <p>ตารางแสดง ID · ชื่อ · ชื่อ (ภาษาอังกฤษ) · สถานะการใช้งาน · ผู้สร้าง/ผู้แก้ไขล่าสุด
+         (ตารางสาขาแพทย์มีคอลัมน์ “แผนกที่รับ/ส่งตัว” เพิ่มมาด้วย)</p>
+      <p>มีช่องค้นหาด้านบน พิมพ์แล้วกรองให้อัตโนมัติ · แบ่งหน้าอัตโนมัติเมื่อข้อมูลเยอะ</p>
+    </li>
+    <li><b>กดปุ่ม “เพิ่มรหัสใหม่”</b>
+      <p>ปุ่มอยู่<b>แถบด้านบนข้างชื่อหน้า</b> ไม่ได้อยู่ในตาราง — ถ้าไม่เห็นปุ่มแปลว่ากลุ่มผู้ใช้งานของตัวเองไม่มีสิทธิ “เพิ่ม”</p>
+    </li>
+    <li><b>กรอกข้อมูลในกล่องที่เปิดขึ้น แล้วบันทึก</b>
+      <p>ช่องที่ขึ้นมาต่างกันตามตาราง ตามที่ระบุไว้ในตารางด้านบน</p>
+    </li>
+    <li><b>แก้ไขหรือลบ</b>
+      <p>กดที่แถวเพื่อแก้ไข · ปุ่มลบอยู่ท้ายแถว (เห็นเฉพาะคนที่มีสิทธิ “ลบ”)</p>
+    </li>
+  </ol>
+
+  <h3>2.4 ลำดับการตั้งที่แนะนำ</h3>
+
+  <ul class="flow">
+    <li><b>1 · แผนก/ภาควิชา</b><span>ตัวอื่นรอตัวนี้อยู่</span></li>
+    <li class="is-lis"><b>2 · สาขาแพทย์</b><span>ต้องเลือกแผนกได้แล้ว</span></li>
+    <li><b>3 · อาคาร</b><span>ทำขนานกันได้</span></li>
+    <li class="is-done"><b>4 · ตรวจผล</b><span>เปิดหน้ารหัสสถานที่ ดูว่าดรอปดาวน์ครบ</span></li>
+  </ul>
+
+  <p><b>วิธีตรวจว่าตั้งครบแล้วจริง</b> — เปิดเมนู <span class="menuname">ผู้ดูแลระบบ <i>›</i> รหัสสถานที่ในโรงพยาบาล</span>
+     → กดเพิ่ม → ดูว่าช่อง <b>แผนก</b> และ <b>ตึก</b> มีตัวเลือกขึ้นครบ
+     ถ้าช่องแผนกว่าง จะกดบันทึกไม่ผ่านเพราะเป็นช่องบังคับ</p>
+
+  <h3>2.5 ตั้งแล้วมีผลที่ไหนบ้าง</h3>
+
+  <p>ตารางนี้ไล่ทีละจุดว่า ข้อมูลที่กรอกในเมนูรหัสหลัก<b>ไปโผล่ที่หน้าจอไหน</b>
+     และ<b>ถูกบันทึกลงข้อมูลอะไร</b> · ช่อง “บังคับ” หมายถึงถ้าไม่เลือกจะบันทึกหน้านั้นไม่ผ่าน</p>
+
+  <h4>แผนก/ภาควิชาที่สังกัด — มีผล 9 จุด มากที่สุดในกลุ่มนี้</h4>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ไปโผล่ที่</th><th>เป็นอะไร</th><th>บังคับ</th><th>ถ้าไม่มีจะเป็นอย่างไร</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>ผู้ดูแลระบบ › รหัสสถานที่ในโรงพยาบาล</b><br><span class="small">ทั้งตัวกรองหน้ารายการ และช่องในหน้าเพิ่ม/แก้ไข</span></td>
+        <td>ช่อง <b>แผนก</b></td>
+        <td><span class="pill pill--red">บังคับ</span></td>
+        <td>สร้างคลินิก ห้องตรวจ วอร์ด คลัง จุดเก็บเงิน ไม่ได้เลยแม้แต่แห่งเดียว</td>
+      </tr>
+      <tr>
+        <td><b>บริหารบุคลากร › ข้อมูลบุคลากร</b></td>
+        <td>แผนก/ภาควิชาที่บุคลากรสังกัด</td>
+        <td><span class="pill pill--red">บังคับ</span></td>
+        <td>บันทึกบุคลากรไม่ผ่าน · เปิดบัญชีผู้ใช้ต่อไม่ได้เพราะต้องมีบุคลากรก่อน</td>
+      </tr>
+      <tr>
+        <td><b>บริหารบุคลากร › รหัสหลัก › ตำแหน่ง</b></td>
+        <td>แผนกที่ตำแหน่งนั้นสังกัด</td>
+        <td><span class="pill pill--red">บังคับ</span></td>
+        <td>สร้างรหัสตำแหน่งไม่ได้ ซึ่งเป็นอีกช่องบังคับของข้อมูลบุคลากร</td>
+      </tr>
+      <tr>
+        <td><b>หอผู้ป่วยใน — การรับไว้เป็นผู้ป่วยใน</b></td>
+        <td>แผนกที่ดูแลผู้ป่วยล่าสุด (บันทึกติดไปกับการ Admit ทุกครั้ง)</td>
+        <td><span class="pill pill--red">บังคับ</span></td>
+        <td>รับผู้ป่วยเข้านอนไม่ได้ · สถิติผู้ป่วยในแยกตามแผนกไม่ได้</td>
+      </tr>
+      <tr>
+        <td><b>ผู้ดูแลระบบ › รหัสหลัก › สาขาแพทย์</b></td>
+        <td>ช่อง <b>แผนกที่รับ/ส่งตัว</b> ของสาขาแพทย์</td>
+        <td><span class="pill pill--gray">ไม่บังคับ</span></td>
+        <td>สร้างสาขาได้ แต่ไม่รู้ว่าสาขานั้นสังกัดแผนกไหน</td>
+      </tr>
+      <tr>
+        <td><b>รับ-ส่งต่อผู้ป่วย › ส่งต่อผู้ป่วยนอก / ผู้ป่วยใน</b><br><span class="small">หน้ารายละเอียดการส่งต่อ</span></td>
+        <td>ช่อง <b>แผนกที่รับ/ส่งตัว</b></td>
+        <td><span class="pill pill--gray">ไม่บังคับ</span></td>
+        <td>ส่งต่อได้ แต่ระบุไม่ได้ว่าส่งไปแผนกไหน ปลายทางต้องถามเอง</td>
+      </tr>
+      <tr>
+        <td><b>การเรียนการสอน › ปฏิทินการเรียน</b><br><span class="small">กล่องลงชื่อเข้าสอนของอาจารย์</span></td>
+        <td>แผนกของอาจารย์ผู้สอน</td>
+        <td><span class="pill pill--gray">ไม่บังคับ</span></td>
+        <td>ลงชื่อได้ แต่สรุปชั่วโมงสอนแยกตามภาควิชาไม่ได้</td>
+      </tr>
+      <tr>
+        <td><b>ข่าวประชาสัมพันธ์ · ข้อความแจ้งเตือน · แบบประเมิน</b></td>
+        <td>แผนกปลายทางที่จะได้รับ</td>
+        <td><span class="pill pill--amber">ตามการใช้งาน</span></td>
+        <td>ส่งเจาะเฉพาะแผนกไม่ได้ ต้องส่งทั้งโรงพยาบาล</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>สาขาแพทย์ — มีผล 6 จุด และมีเรื่องที่คนมักไม่รู้อยู่ 2 ข้อ</h4>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ไปโผล่ที่</th><th>เป็นอะไร</th><th>ผลที่เกิดจริง</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>บริหารบุคลากร › ข้อมูลบุคลากร</b></td>
+        <td>ช่องเลือกสาขา <b>เลือกได้หลายสาขา</b></td>
+        <td>บอกว่าแพทย์คนนี้เชี่ยวชาญสาขาอะไรบ้าง · ใช้จัดตารางปฏิบัติงานและจัดกลุ่มแพทย์</td>
+      </tr>
+      <tr>
+        <td><b>ข้อมูลของฉัน (โปรไฟล์)</b></td>
+        <td>ช่องเลือกสาขาของตัวเอง</td>
+        <td>แพทย์แก้ไขสาขาของตัวเองได้จากหน้าโปรไฟล์</td>
+      </tr>
+      <tr>
+        <td><b>ห้องจ่ายยา › ทะเบียนยา › รายการยาและเวชภัณฑ์</b></td>
+        <td>ผูกยาเข้ากับสาขาแพทย์ พร้อมกำหนด <b>จำนวนที่สั่งได้ต่อครั้ง</b></td>
+        <td><b>คุมสิทธิการสั่งยา</b> — ยาบางตัวให้เฉพาะบางสาขาสั่งได้ และจำกัดจำนวนต่อครั้งได้
+            · เป็นผลกระทบที่แรงที่สุดของรหัสหลักตัวนี้</td>
+      </tr>
+      <tr>
+        <td><b>ห้องจ่ายยา › ทะเบียนยา › ข้อมูลสูตรการสั่งยา</b></td>
+        <td>ระบุว่าสูตรยานี้ “เห็นเฉพาะสาขา” ไหน</td>
+        <td>สูตรยาของสาขาหนึ่งไม่ไปรกหน้าจอของอีกสาขา · ตัวเลือกการมองเห็นมี ทั้งหมด / เฉพาะแพทย์ / เฉพาะสาขา / เฉพาะคลินิก</td>
+      </tr>
+      <tr>
+        <td><b>หอผู้ป่วยใน — การรับไว้เป็นผู้ป่วยใน</b></td>
+        <td>สาขาแพทย์ที่ดูแลผู้ป่วย (ไม่บังคับ)</td>
+        <td>ใช้ดูว่าผู้ป่วยในอยู่ใต้การดูแลของสาขาไหน</td>
+      </tr>
+      <tr>
+        <td><b>เวชระเบียน › สถิติเวชระเบียน › การวินิจฉัยผู้ป่วยใน</b></td>
+        <td>ตัวกรองรายงาน</td>
+        <td>ดูสถิติการวินิจฉัยแยกตามสาขาแพทย์</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>อาคารโรงพยาบาล — มีผลจุดเดียวในทั้งระบบ</h4>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ไปโผล่ที่</th><th>เป็นอะไร</th><th>บังคับ</th><th>ผลที่เกิด</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>ผู้ดูแลระบบ › รหัสสถานที่ในโรงพยาบาล</b></td>
+        <td>ช่อง <b>ตึก</b> คู่กับช่อง <b>ชั้น</b> (ชั้นเป็นช่องพิมพ์เอง ไม่ใช่ดรอปดาวน์)</td>
+        <td><span class="pill pill--gray">ไม่บังคับ</span></td>
+        <td>ใช้บอกตำแหน่งของหน่วยงานให้ผู้ป่วย — แสดงบนใบนัดและป้ายบอกทาง</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--tip">
+    <b class="note__label">สรุปเป็นประโยคเดียวต่อตัว</b>
+    <p><b>แผนก</b> = โครงกระดูกขององค์กร ทุกอย่างที่ต้องรู้ว่า “ใครอยู่หน่วยไหน” ผูกกับตัวนี้ —
+       ไม่มีแล้วเดินหน้าต่อไม่ได้เลย<br>
+       <b>สาขาแพทย์</b> = ตัวบอกความเชี่ยวชาญ และเป็น<b>ตัวคุมสิทธิการสั่งยา</b> —
+       ตั้งผิดแล้วแพทย์สั่งยาบางตัวไม่ได้<br>
+       <b>อาคาร</b> = ข้อมูลบอกทางอย่างเดียว ไม่กระทบตรรกะอะไร แต่ผู้ป่วยหาห้องไม่เจอถ้าไม่ใส่</p>
+  </div>
+
+  <div class="note note--warn">
+    <b class="note__label">ตั้งชื่อแผนกให้ตรงกับระบบบุคคล</b>
+    <p>โครงสร้างฐานข้อมูลของข้อมูลบุคลากรระบุไว้ว่า แผนกจะถูกจับคู่จากรหัสศูนย์ต้นทุนของระบบบุคคล
+       โดยเทียบด้วย <b>ชื่อแผนก</b> และถ้าเทียบไม่ได้ให้ถือเป็นข้อผิดพลาด<br>
+       เพราะฉะนั้นเวลาตั้งชื่อแผนก ให้ใช้ชื่อที่ตรงกับทะเบียนของฝ่ายบุคคล
+       อย่าตั้งชื่อเล่นหรือย่อเอง — ไม่งั้นตอนนำข้อมูลบุคลากรเข้าจะติดทั้งชุด<br>
+       <span class="small">(หมายเหตุ: ข้อความนี้เป็นสเปกที่ระบุไว้ในโครงสร้างฐานข้อมูล
+       ยังไม่พบโค้ดที่ทำการจับคู่นี้อัตโนมัติในเวอร์ชันปัจจุบัน แต่การตั้งชื่อให้ตรงกันเป็นเรื่องที่ควรทำอยู่แล้ว)</span></p>
+  </div>
+
+  <h3>2.6 รายการรหัสหลักทั้งหมด แยกตามโมดูล</h3>
+
+  <p>รวม <b>138 รายการ</b> ใน <b>19 โมดูล</b> · เรียงจากโมดูลที่มีมากที่สุด
+     ชื่อที่แสดงคือชื่อที่เห็นบนหน้าจอจริง</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>โมดูล</th><th>จำนวน</th><th>รายการรหัสหลัก</th></tr></thead>
+    <tbody>
+      <tr><td><b>เวชระเบียน</b></td><td>25</td><td>จังหวัด · อำเภอ/เขต · ตำบล/แขวง · คำนำหน้าชื่อ · อาชีพ · เชื้อชาติ · สถานภาพสมรส · ศาสนา · สัญชาติ · วุฒิการศึกษา · ประเภทผู้พิการ · ประเทศ · เหตุผล · ตำแหน่งในชุมชน · ประเภทนายจ้าง · สถานะการมา · รหัสโรค/รหัสหัตถการ · รหัสกลุ่มโรค ICD · ประเภทการวินิจฉัย · รหัสกลุ่มโรค 504 · รหัสกลุ่มโรค 505 · รหัสกลุ่มโรค 506 · รหัสกลุ่มโรค 507 · ช่องทางที่รู้จักโรงพยาบาล · กลุ่มผู้ป่วย VIP</td></tr>
+      <tr><td><b>ห้องจ่ายยา</b></td><td>19</td><td>ส่วนประกอบยา · ประเภทบัญชียาโรงพยาบาล · สรรพคุณการใช้ยา (ข้อบ่งใช้) · เวลาการใช้ยา · เวลารับประทานยา · วิธีใช้ยา (Route) · คำเตือนการใช้ยา (ข้อควรระวัง) · ลักษณะอาการแพ้ยา · ADR Type · ADR Place · การให้ข้อมูล · รูปแบบยา · หัวข้อรายงานปัญหา · เหตุผล · หน่วย · กลุ่มค่าใช้จ่าย · กลุ่มค่าใช้จ่าย พรบ. · หมวดค่าใช้จ่ายทางบัญชี · ประเภทของยาในบัญชี</td></tr>
+      <tr><td><b>บริหารบุคลากรและค่าตอบแทน</b></td><td>15</td><td>คำนำหน้าชื่อ · งาน · ตำแหน่ง · สาขาวิชา · สถานศึกษา · ช่วงเวลาทำงาน · กลุ่มแพทย์เฉพาะทาง · กลุ่มงานเฉพาะทาง · กลุ่มแพทย์ค่าตอบแทน · กลุ่มงานค่าตอบแทน · สภาวิชาชีพ · กลุ่มใบประกอบวิชาชีพ · ประเภทใบอนุญาต · ประเภทการอบรม · บริษัทประกันภัย</td></tr>
+      <tr><td><b>คลังพัสดุและวัสดุพิเศษ</b></td><td>14</td><td>บริษัทภายนอก · หน่วยพัสดุ · ประเภทการตัดจ่ายพัสดุ · กลุ่มชุดเวชภัณฑ์ · ศูนย์ทุน · แหล่งเงิน · ผลผลิต · แผนงาน · เหตุผล · ชนิดพัสดุ · กลุ่มพัสดุ · ประเภทวัสดุ · Purchasing Groups · PR Types</td></tr>
+      <tr><td><b>ห้องการเงิน</b></td><td>12</td><td>รอบกะการเงิน · กลุ่มงานค่าตอบแทน · กลุ่มค่าใช้จ่าย · กลุ่มค่าใช้จ่าย พรบ. · กลุ่มการเงินทางบัญชี · ประเภทบัตร · เหตุผล · รหัสบริการ (PP Code) · เครื่องรูดบัตร EDC · EDC Type · กลุ่มงานเฉพาะทาง · Dental teeth type</td></tr>
+      <tr><td><b>การเรียนการสอน</b></td><td>8</td><td>ปีการศึกษา · ชั้นปี · ภาคเรียน · กลุ่มนักศึกษา · กลุ่มชุดเครื่องมือ · คำนำหน้าชื่อ · ขั้นตอนงาน · หลักสูตร</td></tr>
+      <tr><td><b>หอผู้ป่วยใน</b></td><td>7</td><td>ข้อมูลประเภทอาหาร · ข้อมูลลักษณะอาหาร · ข้อมูลจำกัดด้านอาหาร · ข้อมูลประเภทกิจกรรม · ข้อมูลกิจกรรม · ข้อมูลประเภทการจำหน่าย · ข้อมูลเหตุผลการจำหน่าย</td></tr>
+      <tr><td><b>ห้องปฏิบัติการ</b></td><td>5</td><td>Specimen · กลุ่ม Lab · เชื้อที่พบ · เหตุผล · หน่วยงานภายนอก</td></tr>
+      <tr><td><b>ห้องผ่าตัดและวิสัญญี</b></td><td>5</td><td>เหตุผล · วิธีดมยา · หัตถการ/เทคนิคที่จัดเป็น Special Tech · ท่าผ่าตัดที่พบบ่อย · ข้อมูลหัตถการ ของการผ่าตัด</td></tr>
+      <tr><td><b>ผู้ดูแลระบบ</b></td><td>4</td><td>แผนก/ภาควิชาที่สังกัด · สาขาแพทย์ · อาคารโรงพยาบาล · Print Prefix</td></tr>
+      <tr><td><b>คลังผู้ป่วย</b></td><td>4</td><td>กลุ่มงาน · ประเภทงาน · สถานะประเภทงาน · รหัส Class</td></tr>
+      <tr><td><b>รับ-ส่งต่อผู้ป่วย</b></td><td>3</td><td>เหตุผล · ประเภทงานหัตถการ · รหัสโรงพยาบาล</td></tr>
+      <tr><td><b>เวชระเบียนอิเล็กทรอนิกส์</b></td><td>3</td><td>ประเภทเอกสาร · ชื่อเอกสาร · เหตุผล</td></tr>
+      <tr><td><b>นัดหมาย</b></td><td>3</td><td>กิจกรรมนัดหมาย · เหตุผล · สั่งตรวจ</td></tr>
+      <tr><td><b>ตารางปฏิบัติงานแพทย์และบุคลากร</b></td><td>3</td><td>เหตุผล · กลุ่มตำแหน่งงาน · ประเภทงดตรวจ</td></tr>
+      <tr><td><b>คลินิกทันตกรรม</b></td><td>3</td><td>เหตุผล · ประเภทงานหัตถการ/ทันตกรรม · บริเวณภายในช่องปาก</td></tr>
+      <tr><td><b>ห้องปฏิบัติการทันตกรรม</b></td><td>2</td><td>บริษัทภายนอก · หมวดหมู่ประเภทงาน</td></tr>
+      <tr><td><b>ระบบบัญชีลูกหนี้</b></td><td>2</td><td>ประเภทลูกหนี้ · รหัสลูกหนี้</td></tr>
+      <tr><td><b>คำขออนุมัติ</b></td><td>1</td><td>ประเภทคำขอ</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <b class="note__label">รายการนี้เปลี่ยนได้ตามเวอร์ชัน</b>
+    <p>ตัวเลขและรายชื่อข้างบนอ้างจากชุดข้อมูลตั้งต้นของระบบ ณ เวอร์ชันที่ใช้จัดทำเอกสารนี้
+       เวอร์ชันใหม่กว่าอาจเพิ่มตารางหรือเปลี่ยนชื่อรายการได้
+       <b>ให้ยึดตามรายการที่เห็นบนหน้าจอจริงของระบบเป็นหลัก</b><br>
+       วิธีตรวจว่าเวอร์ชันของตัวเองมีอะไรบ้าง — เปิด
+       <span class="menuname">ผู้ดูแลระบบ <i>›</i> รหัสหลัก</span>
+       แล้วไล่ดูรายชื่อโมดูลในแถบซ้ายทีละกลุ่ม</p>
+  </div>
+
+  <div class="note note--tip">
+    <b class="note__label">ตัวที่คนหาไม่เจอบ่อยที่สุด</b>
+    <p>ช่อง <b>ประเภท</b> ของรหัสสถานที่ — อยู่ในกลุ่ม <b>คลังผู้ป่วย/คลินิก</b> ชื่อรายการว่า
+       <b>ประเภทงาน</b> ไม่ได้อยู่ในกลุ่มผู้ดูแลระบบ<br>
+       ช่อง <b>ชื่อเอกสาร</b> ที่ใช้ผูกกับแบบฟอร์มและเลขที่เอกสาร — อยู่ในกลุ่ม
+       <b>เวชระเบียนอิเล็กทรอนิกส์</b><br>
+       ทั้งสองตัวเข้าถึงได้จากเมนูรหัสหลักนี้เหมือนกัน แค่ต้องเลือกให้ถูกกลุ่ม</p>
+  </div>
+
+  <div class="note note--danger">
+    <b class="note__label">ปุ่มลบไม่เตือนว่ามีคนใช้อยู่</b>
+    <p>ระบบ<b>ไม่ตรวจ</b>ว่ารหัสนั้นถูกอ้างอิงอยู่หรือไม่ กดลบแล้วลบได้เลย
+       ผลคือรหัสหายจากดรอปดาวน์ทันที แต่ข้อมูลเก่าที่เคยเลือกไว้ยังชี้อยู่ที่รหัสนั้น
+       ทำให้หน้าจอบางที่แสดงค่าว่าง<br>
+       <b>ถ้าเลิกใช้ ให้ปิด “สถานะการใช้งาน” แทนการลบเสมอ</b> —
+       ของเก่ายังอ่านได้ ของใหม่จะไม่เห็นตัวเลือกนั้นอีก · เก็บการลบไว้ใช้กับรายการที่พิมพ์ผิดและยังไม่มีใครเลือกเท่านั้น</p>
+    <p><b>ความเสียหายที่เกิดถ้าลบผิด</b><br>
+       <b>ลบแผนก</b> → สถานที่ บุคลากร ตำแหน่ง และการรับผู้ป่วยในที่เคยอ้างถึง จะแสดงช่องแผนกว่าง
+       และหน้าที่มีช่องบังคับจะบันทึกซ้ำไม่ผ่านจนกว่าจะเลือกแผนกใหม่<br>
+       <b>ลบสาขาแพทย์</b> → สิทธิการสั่งยาที่ผูกกับสาขานั้นหายไป แพทย์ในสาขานั้นสั่งยาที่เคยสั่งได้ไม่ได้อีก<br>
+       <b>ลบอาคาร</b> → สถานที่ที่เคยระบุตึกไว้จะเหลือแต่ชั้น ไม่กระทบการทำงานอื่น</p>
+  </div>
+
+  <div class="note">
+    <b class="note__label">ช่อง Mapping Code ใช้ตอนย้ายข้อมูล</b>
+    <p>ตารางแผนกมีช่อง <b>Mapping Code</b> ไว้เก็บรหัสแผนกของระบบเดิม
+       ทำให้เทียบข้อมูลเก่า-ใหม่ได้ตอนตรวจสอบหลังย้ายข้อมูล
+       ถ้ากำลังขึ้นระบบใหม่ ให้กรอกช่องนี้ไปด้วยตั้งแต่แรก จะประหยัดเวลาตอนกระทบยอดมาก
+       (ดู <a href="10-data-migration.html#masterdata">แผนการย้ายข้อมูล › Master Data ที่ต้องมีก่อนขึ้นระบบ</a>)</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m3">3 · รหัสสถานที่ในโรงพยาบาล</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/work-place</code></span>
+    <span class="role"><b>ทำได้:</b> เพิ่ม · ดู · แก้ไข · ลบ</span>
+    <span class="role"><b>ความสำคัญ:</b> สูงที่สุดในโมดูลนี้</span>
+  </div>
+
+  <p><b>ใช้ตอนไหน</b> — ทำหลังรหัสหลัก และต้องเสร็จก่อนสร้างผู้ใช้
+     เพราะการผูกผู้ใช้เข้ากับกลุ่มผู้ใช้งานต้องระบุ “คลินิก/หน่วยงาน” ทุกครั้ง</p>
+
+  <p><b>ต้องมีก่อน</b> — แผนก + อาคาร (รหัสหลักของผู้ดูแลระบบ) และประเภทงาน (รหัสหลักของคลังผู้ป่วย)</p>
+
+  <p>หนึ่งระเบียนในเมนูนี้อาจเป็นคลินิก ห้องตรวจ วอร์ด ห้องยา คลังพัสดุ หรือจุดเก็บเงิน
+     ขึ้นกับ “ประเภท” ที่เลือก · แท็บที่ต้องกรอกจะเปลี่ยนตามประเภทด้วย</p>
+
+  <ol class="steps steps--purple">
+    <li><b>ข้อมูลทั่วไป</b>
+      <p>รหัส (ตัวอักษร/ตัวเลขเท่านั้น ห้ามซ้ำ) · ประเภท · ชื่อ · ชื่อย่อ · ชื่ออังกฤษ · ชื่ออื่น ·
+         แผนก · เบอร์โทร · ตึก · ชั้น · สถานที่หลัก · หัวหน้าสถานที่ · สถานะการใช้งาน</p>
+      <p class="small">ระบบตรวจซ้ำให้ทันทีทั้งรหัส ชื่อ และชื่อย่อ</p>
+    </li>
+    <li><b>เวลาให้บริการ</b>
+      <p>ใส่เป็นแถว: วัน · คาบ · ประเภทเวลา (ในเวลา/นอกเวลา) · เวลาเริ่ม · เวลาสิ้นสุด</p>
+      <p class="small">ค่านี้ผูกกับการคิดค่าบริการในเวลา/นอกเวลา และการจัดตารางปฏิบัติงาน</p>
+    </li>
+    <li><b>จุดบริการ</b>
+      <p>เพิ่มจุดบริการย่อยภายในสถานที่นั้น เช่น ช่องตรวจ 1–4 หรือช่องรับเงิน 1–3</p>
+    </li>
+    <li><b>ระบบคิว</b>
+      <p>เปิด/ปิดใช้งานระบบคิว และตั้ง “ชื่อสำหรับใช้งานระบบคิว” ที่จะขึ้นบนจอเรียกคิว</p>
+    </li>
+    <li><b>หน่วยงานที่เกี่ยวข้อง</b>
+      <p>ผูกกับคัดกรอง · ห้องการเงิน · นัดหมาย · คลังผู้ป่วย · คลังพัสดุ · ห้องยา · การวินิจฉัยโรค
+         เพื่อบอกระบบว่าเวลาส่งงานออกจากสถานที่นี้ ให้ไปโผล่ที่ไหน</p>
+    </li>
+    <li><b>ประเภท/กลุ่มคลังพัสดุ และล็อคคลัง</b>
+      <p>กรอกเฉพาะสถานที่ที่ทำหน้าที่เป็นคลัง · “ล็อคคลัง” ใช้ตอนตรวจนับสต๊อก</p>
+    </li>
+    <li><b>รายการค่าใช้จ่ายประจำสถานที่</b>
+      <p>เลือกรหัสค่าใช้จ่ายที่จะถูกคิดอัตโนมัติเมื่อผู้ป่วยมาที่นี่ แยกเป็น
+         ค่าบริการทางการพยาบาลในเวลา/นอกเวลา และค่าบริการสถานพยาบาลในเวลา/นอกเวลา · มีตัวเลือก “สำหรับการ OPD”</p>
+      <p class="small">ตั้งผิดตรงนี้ = ค่ารักษาของผู้ป่วยผิดทุกราย ควรตรวจซ้ำกับฝ่ายการเงิน</p>
+    </li>
+    <li><b>รายการพัสดุ และรายการศูนย์ทุน</b>
+      <p>ผูกกลุ่มพัสดุ/รหัสพัสดุที่สถานที่นี้เบิกได้ และผูกรหัสศูนย์ทุนสำหรับส่งข้อมูลไปบัญชี</p>
+    </li>
+    <li><b>คำแนะนำการเข้ารับบริการ</b>
+      <p>ข้อความที่จะแสดงให้ผู้ป่วยเห็น เช่น ต้องงดน้ำงดอาหารมาก่อนหรือไม่</p>
+    </li>
+  </ol>
+
+  <div class="out">
+    <b class="outlabel">สิ่งที่ได้</b>
+    <ul>
+      <li>หน่วยงานที่นำไปผูกกับผู้ใช้ได้ในเมนูผู้ใช้งาน</li>
+      <li>ปลายทางที่เวชระเบียนส่งผู้ป่วยไปตรวจได้</li>
+      <li>จุดเก็บเงินสำหรับห้องการเงิน และคลังสำหรับงานพัสดุ</li>
+      <li>ค่าบริการที่ถูกคิดอัตโนมัติเมื่อผู้ป่วยเข้ารับบริการ</li>
+    </ul>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m4">4 · รูปแบบเลขที่เอกสาร</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/document-number</code></span>
+    <span class="role"><b>ทำได้:</b> เพิ่ม · ดู · แก้ไข · ลบ</span>
+    <span class="role"><b>คู่กับ:</b> เมนู 5 กำหนดเลขที่เอกสาร</span>
+  </div>
+
+  <p>เมนูนี้<b>ยังไม่ผูกกับเอกสารใด ๆ</b> — เป็นแค่การออกแบบ “แม่พิมพ์” ของเลขที่เอกสารไว้ก่อน
+     แล้วค่อยเอาไปจับคู่กับเอกสารจริงที่เมนูถัดไป</p>
+
+  <div style="overflow-x:auto;margin:0 0 10px;padding:4px 0">
+<svg viewBox="0 0 1020 262" role="img"
+     aria-label="Activity Diagram การตั้งเลขที่เอกสาร 4 ขั้นตอน"
+     font-family="IBM Plex Sans Thai, Noto Sans Thai, Sarabun, Segoe UI, sans-serif"
+     style="width:100%;min-width:880px;height:auto">
+  <defs>
+    <marker id="dn-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#9aa4b1"/></marker>
+    <marker id="dn-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#2e7d32"/></marker>
+  </defs>
+
+  <rect x="10" y="16" width="222" height="112" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="11" y="30" width="5" height="84" rx="2.5" fill="#5e35b1"/>
+  <text x="26" y="42" font-size="12.4" font-weight="700" fill="#5e35b1">ขั้นที่ 1</text>
+  <text x="26" y="62" font-size="12.4" font-weight="600" fill="#1b2027">ต่อบล็อกเป็นแถว</text>
+  <text x="26" y="81" font-size="11" fill="#5b6572">ค่าคงที่ · ตัวแปร</text>
+  <text x="26" y="97" font-size="11" fill="#5b6572">วันที่ · Running</text>
+  <text x="26" y="118" font-size="10.4" font-weight="600" fill="#5e35b1">› รูปแบบเลขที่เอกสาร</text>
+
+  <line x1="232" y1="72" x2="268" y2="72" stroke="#9aa4b1" stroke-width="2" marker-end="url(#dn-a)"/>
+
+  <rect x="272" y="16" width="222" height="112" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="273" y="30" width="5" height="84" rx="2.5" fill="#5e35b1"/>
+  <text x="288" y="42" font-size="12.4" font-weight="700" fill="#5e35b1">ขั้นที่ 2</text>
+  <text x="288" y="62" font-size="12.4" font-weight="600" fill="#1b2027">ตั้งกติกาของเลข</text>
+  <text x="288" y="81" font-size="11" fill="#5b6572">ปีปฏิทิน / ปีงบประมาณ</text>
+  <text x="288" y="97" font-size="11" fill="#5b6572">รอบรีเซ็ต · จำนวนหลัก</text>
+  <text x="288" y="118" font-size="10.4" font-weight="600" fill="#5e35b1">หน้าเดียวกัน</text>
+
+  <line x1="494" y1="72" x2="530" y2="72" stroke="#9aa4b1" stroke-width="2" marker-end="url(#dn-a)"/>
+
+  <rect x="534" y="16" width="222" height="112" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="535" y="30" width="5" height="84" rx="2.5" fill="#5e35b1"/>
+  <text x="550" y="42" font-size="12.4" font-weight="700" fill="#5e35b1">ขั้นที่ 3</text>
+  <text x="550" y="62" font-size="12.4" font-weight="600" fill="#1b2027">จับคู่กับชื่อเอกสาร</text>
+  <text x="550" y="81" font-size="11" fill="#5b6572">ใบเสร็จ · ใบแจ้งหนี้</text>
+  <text x="550" y="97" font-size="11" fill="#5b6572">ใบสั่งยา · ใบส่งตรวจ</text>
+  <text x="550" y="118" font-size="10.4" font-weight="600" fill="#5e35b1">› กำหนดเลขที่เอกสาร</text>
+
+  <line x1="756" y1="72" x2="792" y2="72" stroke="#9aa4b1" stroke-width="2" marker-end="url(#dn-a)"/>
+
+  <rect x="796" y="16" width="222" height="112" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="797" y="30" width="5" height="84" rx="2.5" fill="#5e35b1"/>
+  <text x="812" y="42" font-size="12.4" font-weight="700" fill="#5e35b1">ขั้นที่ 4</text>
+  <text x="812" y="62" font-size="12.4" font-weight="600" fill="#1b2027">ตั้งเลขที่ล่าสุด</text>
+  <text x="812" y="81" font-size="11" fill="#5b6572">ให้ต่อจากระบบเดิม</text>
+  <text x="812" y="97" font-size="11" fill="#5b6572">ดูตัวอย่างก่อนบันทึก</text>
+  <text x="812" y="118" font-size="10.4" font-weight="600" fill="#5e35b1">หน้าเดียวกัน</text>
+
+  <line x1="514" y1="128" x2="514" y2="166" stroke="#2e7d32" stroke-width="2" marker-end="url(#dn-b)"/>
+
+  <rect x="10" y="170" width="1008" height="80" rx="9" fill="#e9f6ea" stroke="#8cc190" stroke-width="1.6"/>
+  <rect x="11" y="184" width="5" height="52" rx="2.5" fill="#2e7d32"/>
+  <text x="26" y="198" font-size="12.6" font-weight="600" fill="#1b2027">ผลลัพธ์ — เมื่อผู้ใช้กดบันทึกเอกสารในโมดูลใดก็ตาม ระบบจะออกเลขให้เองตามรูปแบบที่ตั้งไว้</text>
+  <text x="26" y="218" font-size="11.2" fill="#5b6572">ตัวอย่าง: RC-2568-000123 — RC คือค่าคงที่ · 2568 คือปี พ.ศ. ตามรอบที่เลือก · 000123 คือ Running 6 หลักเติมศูนย์หน้า</text>
+  <text x="26" y="236" font-size="11.2" fill="#5b6572">เลขจะเดินต่อจาก “เลขที่ล่าสุด” และรีเซ็ตตามรอบที่กำหนด</text>
+</svg>
+  </div>
+
+  <h3>บล็อกที่ใช้ต่อเป็นรูปแบบ</h3>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ประเภทบล็อก</th><th>ต้องกรอกอะไร</th><th>ได้ผลเป็น</th></tr></thead>
+    <tbody>
+      <tr><td><b>ค่าคงที่</b></td><td>ข้อความที่ต้องการ</td><td>ตัวอักษรตายตัว เช่น <code>RC</code> <code>INV</code> <code>-</code></td></tr>
+      <tr><td><b>ตัวแปร</b></td><td>เลือกตัวแปรจากระบบ</td><td>ค่าที่เปลี่ยนตามบริบท เช่น รหัสหน่วยงานที่ออกเอกสาร</td></tr>
+      <tr><td><b>วันที่</b></td><td>รูปแบบวันที่ (DD · MM · YY · YYYY) และรูปแบบปี (พ.ศ. หรือ ค.ศ.)</td><td>ชิ้นส่วนวันที่ เช่น <code>2568</code> <code>68</code> <code>09</code></td></tr>
+      <tr><td><b>Running</b></td><td>เริ่มต้นนับ · จำนวนหลัก · เติมศูนย์หน้า · รอบรีเซ็ต</td><td>เลขวิ่ง เช่น <code>000123</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>กติกาที่ต้องตัดสินใจ</h3>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ตัวเลือก</th><th>ค่าที่เลือกได้</th><th>เลือกอย่างไร</th></tr></thead>
+    <tbody>
+      <tr><td><b>ประเภทปี</b></td><td>ปีปฏิทิน · ปีงบประมาณ</td><td>เอกสารการเงินที่ต้องสรุปตามงบประมาณให้เลือกปีงบประมาณ · ระบบจะอิงเดือนเริ่ม/สิ้นสุดจากเมนูข้อมูลโรงพยาบาล</td></tr>
+      <tr><td><b>รูปแบบปี</b></td><td>พ.ศ. · ค.ศ.</td><td>เอกสารที่ส่งให้หน่วยงานราชการมักใช้ พ.ศ.</td></tr>
+      <tr><td><b>รอบรีเซ็ตเลข</b></td><td>รายวัน · รายเดือน · รายปี · ไม่รีเซ็ต</td><td>ถ้ารีเซ็ตรายวันแต่ไม่มีบล็อกวันที่ในรูปแบบ เลขจะซ้ำกันข้ามวัน — ต้องมีคู่กันเสมอ</td></tr>
+      <tr><td><b>จำนวนหลัก + เติมศูนย์</b></td><td>ตัวเลข · เปิด/ปิด</td><td>ประเมินปริมาณเอกสารต่อรอบ แล้วเผื่อหลักไว้ เช่น วันละ 500 ใบ ใช้ 4–5 หลัก</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--danger">
+    <b class="note__label">อย่าแก้รูปแบบที่ใช้งานจริงแล้ว</b>
+    <p>ถ้าเอกสารออกไปแล้วหลายพันใบแล้วมาเปลี่ยนรูปแบบกลางคัน
+       เลขชุดเก่ากับชุดใหม่จะคนละหน้าตา ตรวจสอบย้อนหลังยาก
+       และถ้าลดจำนวนหลักลงอาจชนกับเลขเดิมได้ · ถ้าจำเป็นต้องเปลี่ยน ให้เปลี่ยนที่ต้นรอบ (ต้นปีงบประมาณ)</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m5">5 · กำหนดเลขที่เอกสาร</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/set-document-number</code></span>
+    <span class="role"><b>ทำได้:</b> ดู · แก้ไข</span>
+    <span class="role"><b>ต้องมีก่อน:</b> รูปแบบเลขที่เอกสาร</span>
+  </div>
+
+  <p>หน้านี้เป็นตารางรายชื่อเอกสารที่ระบบกำหนดไว้ (ใบเสร็จ ใบแจ้งหนี้ ใบสั่งยา ใบส่งตรวจ ฯลฯ)
+     งานของผู้ดูแลระบบคือ<b>จับคู่</b>ว่าเอกสารแต่ละชนิดใช้รูปแบบไหน</p>
+
+  <ol class="steps steps--purple">
+    <li><b>เปิดรายการเอกสาร</b><p>ตารางแสดง ชื่อเอกสาร · รูปแบบเลขที่เอกสารที่ผูกอยู่ · วันที่แก้ไขล่าสุด</p></li>
+    <li><b>กด ดู/แก้ไข ที่เอกสารที่ต้องการ</b><p>เลือกรูปแบบจากรายการที่สร้างไว้ในเมนู 4</p></li>
+    <li><b>ตรวจ “ตัวอย่างเลขที่เอกสาร”</b>
+      <p>ระบบแสดงตัวอย่างเลขที่จะได้จริงในกล่องด้านบน — อ่านให้ตรงกับที่ตกลงกับหน่วยงานก่อนบันทึก</p>
+    </li>
+    <li><b>ตั้ง “เลขที่ล่าสุด”</b>
+      <p>ขั้นตอนสำคัญตอนย้ายจากระบบเดิม — ใส่เลขสุดท้ายที่ระบบเดิมออกไปแล้ว
+         ระบบใหม่จะเดินต่อจากเลขนั้น ไม่ทับของเดิม</p>
+    </li>
+    <li><b>บันทึก แล้วทดสอบจริง 1 ใบ</b>
+      <p>ไปที่โมดูลที่ออกเอกสารชนิดนั้น บันทึกทดสอบ 1 รายการ แล้วดูว่าเลขออกถูกต้อง</p>
+    </li>
+  </ol>
+
+  <div class="note note--warn">
+    <b class="note__label">ทำก่อนเปิดใช้ระบบวันแรกเสมอ</b>
+    <p>ถ้าเปิดใช้งานแล้วค่อยมาตั้งเลขที่ล่าสุด เอกสารที่ออกไปก่อนหน้าจะมีเลขที่ชนกับของระบบเดิม
+       และแก้ย้อนหลังไม่ได้ ต้องออกใบยกเลิก/ใบใหม่แทน</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m6">6 · แบบฟอร์มในระบบ</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/system-form</code></span>
+    <span class="role"><b>ทำได้:</b> เพิ่ม · ดู · แก้ไข · ลบ</span>
+    <span class="role"><b>ไฟล์ที่ใช้:</b> .mrt + .sql</span>
+  </div>
+
+  <p><b>แบบฟอร์ม</b> คือเอกสารที่ระบบ<b>พิมพ์ออกมา</b>ระหว่างทำงาน เช่น ใบสั่งยา ฉลากยา
+     ใบรับรองแพทย์ ใบนำส่งตรวจ · ต่างจาก “รายงาน” ตรงที่แบบฟอร์มผูกกับ<b>ชื่อเอกสาร</b>
+     และถูกเรียกจากปุ่มพิมพ์ในโมดูล ส่วนรายงานผูกกับ<b>ระบบงานและกลุ่มผู้ใช้</b>
+     และถูกเรียกจากเมนูรายงาน</p>
+
+  <div style="overflow-x:auto;margin:0 0 10px;padding:4px 0">
+<svg viewBox="0 0 1020 236" role="img"
+     aria-label="Activity Diagram วงจรชีวิตของแบบฟอร์มและรายงานในระบบ"
+     font-family="IBM Plex Sans Thai, Noto Sans Thai, Sarabun, Segoe UI, sans-serif"
+     style="width:100%;min-width:900px;height:auto">
+  <defs>
+    <marker id="fm-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#9aa4b1"/></marker>
+    <marker id="fm-l" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#a06400"/></marker>
+  </defs>
+
+  <rect x="10" y="16" width="182" height="104" rx="9" fill="#f7f8f8" stroke="#c6cad0" stroke-width="1.6"/>
+  <text x="26" y="40" font-size="12.4" font-weight="700" fill="#6b7684">ขั้นที่ 1</text>
+  <text x="26" y="60" font-size="12.2" font-weight="600" fill="#1b2027">เตรียมไฟล์</text>
+  <text x="26" y="79" font-size="11" fill="#5b6572">.sql ดึงข้อมูล</text>
+  <text x="26" y="95" font-size="11" fill="#5b6572">.mrt หน้าตาเอกสาร</text>
+  <text x="26" y="112" font-size="10.4" fill="#8b95a3">ทีมพัฒนา/ทีมรายงานทำให้</text>
+
+  <line x1="192" y1="68" x2="212" y2="68" stroke="#9aa4b1" stroke-width="2" marker-end="url(#fm-a)"/>
+
+  <rect x="216" y="16" width="182" height="104" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="217" y="30" width="5" height="76" rx="2.5" fill="#5e35b1"/>
+  <text x="232" y="40" font-size="12.4" font-weight="700" fill="#5e35b1">ขั้นที่ 2</text>
+  <text x="232" y="60" font-size="12.2" font-weight="600" fill="#1b2027">สร้างรายการ</text>
+  <text x="232" y="79" font-size="11" fill="#5b6572">ตั้งชื่อ · เวอร์ชัน</text>
+  <text x="232" y="95" font-size="11" fill="#5b6572">แนบ .sql และ .mrt</text>
+  <text x="232" y="112" font-size="10.4" font-weight="600" fill="#5e35b1">› แบบฟอร์ม/รายงานในระบบ</text>
+
+  <line x1="398" y1="68" x2="418" y2="68" stroke="#9aa4b1" stroke-width="2" marker-end="url(#fm-a)"/>
+
+  <rect x="422" y="16" width="182" height="104" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="423" y="30" width="5" height="76" rx="2.5" fill="#5e35b1"/>
+  <text x="438" y="40" font-size="12.4" font-weight="700" fill="#5e35b1">ขั้นที่ 3</text>
+  <text x="438" y="60" font-size="12.2" font-weight="600" fill="#1b2027">ประกาศพารามิเตอร์</text>
+  <text x="438" y="79" font-size="11" fill="#5b6572">ชื่อ · ตัวแปร · ประเภท</text>
+  <text x="438" y="95" font-size="11" fill="#5b6572">ค่าคงที่ / ตาราง / ฟิลเตอร์</text>
+  <text x="438" y="112" font-size="10.4" font-weight="600" fill="#5e35b1">หน้าเดียวกัน</text>
+
+  <line x1="604" y1="68" x2="624" y2="68" stroke="#9aa4b1" stroke-width="2" marker-end="url(#fm-a)"/>
+
+  <rect x="628" y="16" width="182" height="104" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="629" y="30" width="5" height="76" rx="2.5" fill="#5e35b1"/>
+  <text x="644" y="40" font-size="12.4" font-weight="700" fill="#5e35b1">ขั้นที่ 4</text>
+  <text x="644" y="60" font-size="12.2" font-weight="600" fill="#1b2027">ผูกปลายทาง</text>
+  <text x="644" y="79" font-size="11" fill="#5b6572">แบบฟอร์ม → ชื่อเอกสาร</text>
+  <text x="644" y="95" font-size="11" fill="#5b6572">รายงาน → ระบบงาน + กลุ่มผู้ใช้</text>
+  <text x="644" y="112" font-size="10.4" font-weight="600" fill="#5e35b1">แล้วเปิดสถานะการใช้งาน</text>
+
+  <line x1="810" y1="68" x2="830" y2="68" stroke="#9aa4b1" stroke-width="2" marker-end="url(#fm-a)"/>
+
+  <rect x="834" y="16" width="182" height="104" rx="9" fill="#e9f6ea" stroke="#8cc190" stroke-width="1.6"/>
+  <rect x="835" y="30" width="5" height="76" rx="2.5" fill="#2e7d32"/>
+  <text x="850" y="40" font-size="12.4" font-weight="700" fill="#2e7d32">ผลลัพธ์</text>
+  <text x="850" y="60" font-size="12.2" font-weight="600" fill="#1b2027">โมดูลเรียกใช้ได้</text>
+  <text x="850" y="79" font-size="11" fill="#5b6572">ปุ่มพิมพ์มีเอกสารให้เลือก</text>
+  <text x="850" y="95" font-size="11" fill="#5b6572">เมนูรายงานมีรายการขึ้น</text>
+
+  <path d="M925 120 V184 H307 V128" fill="none" stroke="#a06400" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#fm-l)"/>
+  <text x="616" y="178" text-anchor="middle" font-size="11" font-weight="600" fill="#a06400">แก้ไข → อัปโหลดทับ → ระบบเก็บเป็นเวอร์ชันใหม่ ดูย้อนหลัง/ดาวน์โหลดได้ที่ “ประวัติการแก้ไข”</text>
+
+  <text x="514" y="212" text-anchor="middle" font-size="11" fill="#8b95a3">ของเดิมไม่หาย — เปิดดูตัวอย่างและดาวน์โหลดเวอร์ชันเก่าได้ตลอด</text>
+</svg>
+  </div>
+
+  <ol class="steps steps--purple">
+    <li><b>กด “เพิ่ม” แล้วกรอกหัวเรื่อง</b>
+      <p>ชื่อแบบฟอร์ม · เวอร์ชัน · สถานะการใช้งาน · <b>ชื่อเอกสาร</b> (เอกสารชนิดไหนที่ฟอร์มนี้ใช้พิมพ์) · <b>ระบบงาน</b></p>
+    </li>
+    <li><b>อัปโหลดไฟล์ 2 ตัว</b>
+      <p><b>ไฟล์ SQL (.sql)</b> คือคำสั่งดึงข้อมูล · <b>ไฟล์แบบฟอร์ม (.mrt)</b> คือหน้าตาเอกสาร</p>
+    </li>
+    <li><b>ประกาศพารามิเตอร์ให้ตรงกับ SQL</b>
+      <p>ต่อหนึ่งพารามิเตอร์ต้องระบุ ชื่อพารามิเตอร์ (ที่ผู้ใช้เห็น) · ชื่อตัวแปร (ที่ตรงกับใน SQL) · ประเภท</p>
+      <p>ประเภทเลือกได้เป็น <b>ค่าคงที่</b> (ใส่ค่าตายตัว) · <b>ตาราง</b> (ให้ผู้ใช้เลือกจากรายการ โดยระบุตารางและฟิลด์) ·
+         และเลือกได้ว่ายอมให้เป็น <b>ค่าว่าง</b> หรือไม่</p>
+      <p>ถ้าเลือกแบบตาราง เพิ่ม <b>ฟิลเตอร์</b> ทีละแถวได้ — เลือกฟิลด์ แล้วใส่ค่าข้อมูลที่ต้องการกรอง</p>
+      <p class="small">ชื่อตัวแปรต้องสะกดตรงกับที่ SQL ใช้ ถ้าไม่ตรงจะพิมพ์ไม่ออกหรือได้ข้อมูลว่าง</p>
+    </li>
+    <li><b>เปิดสถานะการใช้งาน แล้วบันทึก</b>
+      <p>ฟอร์มที่ปิดสถานะจะไม่ขึ้นให้เลือกในโมดูลปลายทาง</p>
+    </li>
+    <li><b>ทดสอบพิมพ์จากโมดูลจริง</b>
+      <p>เปิดโมดูลที่ใช้ฟอร์มนี้ กดพิมพ์ 1 ใบ ตรวจว่าข้อมูลขึ้นครบและตัวอักษรไทยไม่ตกหล่น</p>
+    </li>
+    <li><b>เวลามีแก้ไข ให้ดู “ประวัติการแก้ไข”</b>
+      <p>ทุกครั้งที่อัปโหลดใหม่ ระบบเก็บเป็นเวอร์ชัน · หน้าประวัติเปิด <b>ดูตัวอย่าง</b> และ <b>ดาวน์โหลด</b> ไฟล์เวอร์ชันเก่าได้</p>
+    </li>
+  </ol>
+
+  <div class="note note--tip">
+    <b class="note__label">เชื่อมกับเมนูตั้งค่าระบบ</b>
+    <p>แบบฟอร์มที่สร้างที่นี่คือรายการที่ไปโผล่ในดรอปดาวน์ “แบบฟอร์ม” ของหน้า <b>ตั้งค่าระบบต่างๆ</b>
+       เช่น ช่อง “พิมพ์แบบฟอร์มอัตโนมัติ (หลัง Visit)” และ “พิมพ์แบบฟอร์มอัตโนมัติ (หลังบันทึกใบสั่งยาครั้งแรก)”
+       ถ้ายังไม่สร้างแบบฟอร์ม ดรอปดาวน์เหล่านั้นจะว่าง</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m7">7 · รายงานในระบบ</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/reported-form</code></span>
+    <span class="role"><b>ทำได้:</b> เพิ่ม · ดู · แก้ไข · ลบ</span>
+    <span class="role"><b>คุมการมองเห็น:</b> ด้วยกลุ่มผู้ใช้งาน</span>
+  </div>
+
+  <p>ขั้นตอนเหมือนแบบฟอร์มเกือบทั้งหมด (ดูแผนภาพด้านบน) ต่างกันที่<b>ช่วงผูกปลายทาง</b></p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หัวข้อ</th><th>แบบฟอร์มในระบบ</th><th>รายงานในระบบ</th></tr></thead>
+    <tbody>
+      <tr><td><b>ใช้ทำอะไร</b></td><td>พิมพ์เอกสารระหว่างทำงาน</td><td>ดึงข้อมูลสรุป/ตรวจสอบ</td></tr>
+      <tr><td><b>ผูกกับ</b></td><td>ชื่อเอกสาร + ระบบงาน</td><td>ระบบงาน (เพิ่มได้หลายระบบ) + <b>กลุ่มผู้ใช้งาน</b></td></tr>
+      <tr><td><b>ผู้ใช้เปิดจากไหน</b></td><td>ปุ่มพิมพ์ในหน้าจอของโมดูล</td><td>เมนู “รายงาน” ของโมดูลนั้น</td></tr>
+      <tr><td><b>ใครเห็น</b></td><td>ใครที่เข้าถึงหน้าจอนั้นได้</td><td>เฉพาะกลุ่มผู้ใช้งานที่ระบุไว้ในรายงานนั้น</td></tr>
+      <tr><td><b>มีช่องรายละเอียด</b></td><td>ไม่มี</td><td>มี — ใช้อธิบายว่ารายงานนี้ตอบคำถามอะไร</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <ol class="steps steps--purple">
+    <li><b>กรอกหัวเรื่อง</b><p>ชื่อรายงาน · เวอร์ชัน · สถานะการใช้งาน · รายละเอียด</p></li>
+    <li><b>กด “เพิ่มระบบงาน”</b>
+      <p>ระบุว่ารายงานนี้จะไปขึ้นใต้เมนูรายงานของโมดูลใด · เพิ่มได้มากกว่าหนึ่งโมดูล</p>
+    </li>
+    <li><b>กด “เพิ่มสิทธิ” เลือกกลุ่มผู้ใช้งาน</b>
+      <p>เฉพาะกลุ่มที่เลือกเท่านั้นที่จะเห็นรายงานนี้ — ใช้กันรายงานการเงิน/บุคลากรไม่ให้หลุดไปหน่วยงานอื่น</p>
+    </li>
+    <li><b>อัปโหลด .sql และ .mrt แล้วประกาศพารามิเตอร์</b>
+      <p>เหมือนแบบฟอร์มทุกประการ · กดปุ่ม “พารามิเตอร์” เพื่อดูค่าที่ประกาศไว้</p>
+    </li>
+    <li><b>เปิดสถานะการใช้งาน แล้วทดสอบที่เมนูรายงานของโมดูล</b>
+      <p>ทดสอบด้วยบัญชีที่อยู่ในกลุ่มผู้ใช้งานที่ระบุ และลองด้วยบัญชีนอกกลุ่มว่าไม่เห็นจริง</p>
+    </li>
+  </ol>
+
+  <div class="note note--warn">
+    <b class="note__label">ลำดับที่มักทำผิด</b>
+    <p>สร้างรายงานก่อนสร้างกลุ่มผู้ใช้งาน → ช่อง “เพิ่มสิทธิ” ไม่มีอะไรให้เลือก →
+       บันทึกไปโดยไม่ผูกกลุ่ม → <b>ไม่มีใครเห็นรายงานนั้นเลย</b>
+       ถ้าเจออาการรายงานหาย ให้กลับมาตรวจช่องนี้ก่อนเป็นอันดับแรก</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m8">8 · ตั้งค่าระบบต่างๆ</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/set-up-various-systems</code></span>
+    <span class="role"><b>ทำได้:</b> ดู · แก้ไข</span>
+    <span class="role"><b>จำนวนแท็บ:</b> 13</span>
+  </div>
+
+  <p>หน้าเดียวแต่กว้างที่สุดในโมดูล — เป็นสวิตช์ควบคุมพฤติกรรมของโมดูลอื่นทั้งระบบ
+     ด้านซ้ายเป็นรายการแท็บ กดเลือกแล้วแก้ค่าในแท็บนั้น แล้วกดบันทึก</p>
+
+  <p><b>ทำหลังเมนูที่ 1–7</b> เพราะหลายช่องต้องเลือกค่าที่สร้างไว้ก่อนแล้ว
+     เช่น “แบบฟอร์ม” “คลินิก” “สิทธิหลักของระบบ” “กลุ่มแพทย์เฉพาะทาง”</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>แท็บ</th><th>ตั้งอะไรได้</th><th>ต้องมีอะไรก่อน</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>เวชระเบียน</b></td>
+        <td>เลขที่หน่วยงานสำหรับเชื่อมทะเบียนราษฎร์ (Linkage Office Code) · URL/ชื่อผู้ใช้/รหัสผ่านของระบบ Pre-patient ·
+            เปิด/ปิดพิมพ์แบบฟอร์มอัตโนมัติหลัง Visit และเลือกว่าจะพิมพ์แบบฟอร์มใด</td>
+        <td>แบบฟอร์มในระบบ</td>
+      </tr>
+      <tr>
+        <td><b>เวชระเบียนอิเล็กทรอนิกส์</b></td>
+        <td>การอัปโหลดไฟล์ — เลือกว่าอัปโหลดชื่อซ้ำแล้วให้ “แทนที่ไฟล์เดิม” หรือเก็บทั้งคู่ ·
+            เปิด/ปิดแบบฟอร์มซักประวัติกรณีกึ่งเร่งด่วนและเร่งด่วน</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><b>คลินิกทันตกรรม</b></td>
+        <td>ค่าเฉพาะของงานทันตกรรม</td>
+        <td>รหัสสถานที่</td>
+      </tr>
+      <tr>
+        <td><b>การเรียนการสอน</b></td>
+        <td>เปิด/ปิด “มีระบบการเรียนการสอน” · เลือกประเภทงานสำหรับ Visit ของระบบการเรียนการสอน</td>
+        <td>ประเภทงาน (รหัสหลักคลังผู้ป่วย)</td>
+      </tr>
+      <tr>
+        <td><b>ห้องจ่ายยา</b></td>
+        <td>จำนวนบรรทัดฉลากยา · พิมพ์อัตโนมัติหลังบันทึกใบสั่งยาครั้งแรก (OPD) · พิมพ์อัตโนมัติหลังตรวจสอบใบสั่งยา (OPD และ IPD)
+            พร้อมเลือกแบบฟอร์มของแต่ละกรณี · เวลาประมวลผลการสั่งยา Continue</td>
+        <td>แบบฟอร์มในระบบ</td>
+      </tr>
+      <tr>
+        <td><b>คลังพัสดุและวัสดุพิเศษ</b></td>
+        <td>ค่าเฉพาะของงานคลัง</td>
+        <td>รหัสสถานที่ประเภทคลัง</td>
+      </tr>
+      <tr>
+        <td><b>ห้องการเงิน</b></td>
+        <td>ใช้เล่มที่/เลขที่ใบเสร็จรับเงินหรือไม่ และเลขที่สุดท้ายของเล่ม · ใช้เล่มที่/เลขที่ใบแจ้งหนี้หรือไม่ และเลขที่สุดท้ายของเล่ม ·
+            สิทธิหลักของระบบที่ใช้เป็นค่าตั้งต้นบนใบเสร็จ</td>
+        <td>สิทธิการรักษา · กำหนดเลขที่เอกสาร</td>
+      </tr>
+      <tr><td><b>ห้องรังสีวิทยา</b></td><td>ค่าเฉพาะของงานรังสี</td><td>รหัสสถานที่</td></tr>
+      <tr><td><b>ห้องปฏิบัติการ</b></td><td>ค่าเฉพาะของงานแล็บ</td><td>รหัสสถานที่</td></tr>
+      <tr>
+        <td><b>หอผู้ป่วยใน</b></td>
+        <td>เวลาประมวลผลการสั่ง Order ที่ไม่ใช่ยา · คลินิกตรวจร่างกายก่อน Admit</td>
+        <td>รหัสสถานที่</td>
+      </tr>
+      <tr>
+        <td><b>บริหารบุคลากรและค่าตอบแทน</b></td>
+        <td>แจ้งเตือนล่วงหน้าก่อนยกเลิกผู้ใช้งาน แยกกรณี “ในสังกัด” และ “นอกสังกัด” (หน่วยเป็นเดือน) ·
+            กลุ่มแพทย์เฉพาะทางสำหรับแพทย์ในสังกัด</td>
+        <td>กลุ่มแพทย์เฉพาะทาง</td>
+      </tr>
+      <tr>
+        <td><b>งานผู้ดูแลระบบ</b></td>
+        <td>นโยบายการเข้าระบบและรหัสผ่าน — ดูรายละเอียดในหัวข้อถัดไป</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><b>ตั้งค่า PHR</b></td>
+        <td>ชื่อผู้ใช้งาน/รหัสผ่าน PHR · เปิด/ปิด Auto Transfer PHR</td>
+        <td>บัญชีจากผู้ให้บริการ PHR</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>แท็บ “งานผู้ดูแลระบบ” — ตั้งนโยบายความปลอดภัย</h3>
+
+  <p>แท็บนี้ควรตั้งให้เสร็จ<b>ก่อนสร้างผู้ใช้คนแรก</b> เพราะกติกาเหล่านี้จะถูกบังคับใช้ตั้งแต่บัญชีแรกที่เข้าระบบ</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>กลุ่ม</th><th>ค่าที่ตั้งได้</th><th>ผลที่เกิด</th></tr></thead>
+    <tbody>
+      <tr>
+        <td rowspan="3"><b>เข้าสู่ระบบ/การใช้งาน</b></td>
+        <td>เปลี่ยนรหัสผ่านในครั้งแรกที่เข้าสู่ระบบ</td>
+        <td>ผู้ใช้ใหม่ถูกบังคับเปลี่ยนรหัสทันทีที่ล็อกอินครั้งแรก — ควรเปิดไว้</td>
+      </tr>
+      <tr><td>จำนวนคอมพิวเตอร์/อุปกรณ์ที่เข้าใช้งาน</td><td>จำกัดว่าบัญชีเดียวใช้พร้อมกันได้กี่เครื่อง</td></tr>
+      <tr><td>ระยะเวลาเซสชันหมดอายุ (นาที)</td><td>ไม่มีการใช้งานเกินเวลานี้ ระบบจะตัดออก</td></tr>
+      <tr>
+        <td rowspan="6"><b>รหัสผ่าน</b></td>
+        <td>ความซับซ้อน: ตัวเลข · อักษร · อักขระพิเศษ</td>
+        <td>ติ๊กอะไร รหัสผ่านต้องมีสิ่งนั้น</td>
+      </tr>
+      <tr><td>จำนวน Password ขั้นต่ำ</td><td>ความยาวขั้นต่ำ</td></tr>
+      <tr><td>อายุของรหัสผ่าน (วัน)</td><td>ครบกำหนดแล้วบังคับเปลี่ยน</td></tr>
+      <tr><td>จำนวนครั้งที่ไม่ซ้ำกับรหัสผ่านเดิมล่าสุด</td><td>กันการวนใช้รหัสเดิม</td></tr>
+      <tr><td>จำนวนครั้งที่ใส่รหัสผ่านผิดได้</td><td>เกินแล้วบัญชีถูกล็อก</td></tr>
+      <tr><td>เวลาปลดล็อกอัตโนมัติ</td><td>ล็อกแล้วรอครบเวลานี้ระบบปลดให้เอง · ถ้าไม่อยากรอ ผู้ดูแลระบบปลดมือได้ที่เมนูผู้ใช้งาน</td></tr>
+      <tr>
+        <td><b>การแจ้งเตือน</b></td>
+        <td>แจ้งเตือนล่วงหน้าก่อน Personal Token หมดอายุ (วัน)</td>
+        <td>กันระบบเชื่อมต่อภายนอกล่มเพราะ Token หมดอายุโดยไม่รู้ตัว</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--danger">
+    <b class="note__label">ตั้งค่าที่นี่กระทบทุกคนทันที</b>
+    <p>ลดเวลาเซสชันเหลือน้อยเกินไป → ห้องตรวจถูกเด้งออกกลางการบันทึก ·
+       ตั้งจำนวนอุปกรณ์เป็น 1 → พยาบาลที่ต้องย้ายเครื่องระหว่างเวรใช้ไม่ได้ ·
+       ตั้งจำนวนครั้งที่ใส่รหัสผิดต่ำเกินไป → บัญชีโดนล็อกกันทั้งวอร์ด
+       ควรตกลงค่ากับหน่วยงานก่อน และแจ้งล่วงหน้าเมื่อจะเปลี่ยน</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m9">9 · กลุ่มผู้ใช้งาน</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/user-group</code></span>
+    <span class="role"><b>ทำได้:</b> เพิ่ม · ดู · แก้ไข · ลบ</span>
+    <span class="role"><b>คำที่ระบบอื่นเรียก:</b> Role</span>
+  </div>
+
+  <p>ระบบคุมสิทธิเป็น 3 ชั้น เข้าใจสามชั้นนี้ก่อน แล้วงานที่เหลือจะง่ายขึ้นมาก</p>
+
+  <ul class="flow">
+    <li><b>สิทธิรายเมนู</b><span>เพิ่ม/ดู/แก้ไข/ลบ ของแต่ละเมนู</span></li>
+    <li class="is-lis"><b>กลุ่มผู้ใช้งาน</b><span>ชุดสิทธิสำเร็จรูปตามหน้าที่งาน</span></li>
+    <li class="is-done"><b>ผู้ใช้งาน</b><span>ผูกกลุ่ม + หน่วยงาน + ช่วงวันที่</span></li>
+  </ul>
+
+  <p><b>ใช้ตอนไหน</b> — สร้างครั้งแรกตอนเปิดระบบ แล้วเพิ่มกลุ่มใหม่เมื่อมีหน้าที่งานใหม่
+     หรือแก้กลุ่มเดิมเมื่อขอบเขตงานเปลี่ยน</p>
+
+  <ol class="steps steps--purple">
+    <li><b>ตั้งชื่อกลุ่มตามหน้าที่งาน ไม่ใช่ตามคน</b>
+      <p>กรอก ชื่อกลุ่มผู้ใช้งาน · รายละเอียด · สถานะการใช้งาน ·
+         ติ๊ก <b>“ใช้กับนักศึกษา”</b> ถ้ากลุ่มนี้สำหรับนักศึกษาในระบบการเรียนการสอน</p>
+      <p class="small">ตั้งชื่อว่า “เจ้าหน้าที่การเงิน OPD” ไม่ใช่ “กลุ่มของคุณสมชาย” — คนย้ายงานได้ แต่หน้าที่งานอยู่</p>
+    </li>
+    <li><b>ติ๊กสิทธิในตาราง “สิทธิ์การเข้าใช้งานเมนู”</b>
+      <p>ตารางไล่ตามโครงสร้างเมนูจริงของระบบ · แต่ละเมนูติ๊กแยกได้ว่าให้ <b>เพิ่ม · ดู · แก้ไข · ลบ</b> (บางเมนูมี ส่งออก) ·
+         มีช่อง <b>ทั้งหมด</b> สำหรับติ๊กรวดเดียว</p>
+    </li>
+    <li><b>ตรวจตามหลัก “ให้เท่าที่จำเป็น”</b>
+      <p>ถ้าหน้าที่นั้นแค่ดู ก็ให้เฉพาะ “ดู” · สิทธิ “ลบ” ควรให้เฉพาะหัวหน้างานหรือผู้ดูแลระบบ</p>
+    </li>
+    <li><b>บันทึก</b><p>กลุ่มนี้พร้อมให้เลือกในเมนูผู้ใช้งาน และในช่อง “เพิ่มสิทธิ” ของเมนูรายงานในระบบ</p></li>
+  </ol>
+
+  <div class="note note--warn">
+    <b class="note__label">แก้กลุ่มกระทบทุกคนในกลุ่ม</b>
+    <p>ถอนสิทธิออกจากกลุ่มที่มีคนใช้อยู่ 80 คน = คน 80 คนเสียสิทธินั้นพร้อมกัน
+       ถ้าต้องการปรับสิทธิให้คนบางกลุ่ม ให้<b>สร้างกลุ่มใหม่</b>แล้วย้ายเฉพาะคนที่เกี่ยวข้อง
+       ปลอดภัยกว่าการแก้กลุ่มเดิม</p>
+  </div>
+
+  <div class="note note--tip">
+    <b class="note__label">สิทธิมีผลเมื่อไร</b>
+    <p>สิทธิถูกอ่านเข้าเครื่องผู้ใช้ตอน<b>เข้าสู่ระบบ</b>
+       ถ้าแก้กลุ่มขณะที่ผู้ใช้กำลังใช้งานอยู่ เขาจะยังเห็นของเดิมจนกว่าจะออกจากระบบแล้วเข้าใหม่
+       เวลาทดสอบหรือแจ้งผู้ใช้ ให้บอกให้ล็อกเอาต์แล้วล็อกอินใหม่เสมอ</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m10">10 · คำขอผู้ใช้งาน</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/user/user-request</code></span>
+    <span class="role"><b>ทำได้:</b> เพิ่ม · ดู · แก้ไข · ลบ</span>
+    <span class="role"><b>ต้นทางคำขอ:</b> หน่วยงาน + สายอนุมัติ</span>
+  </div>
+
+  <p>ผู้ดูแลระบบ<b>ไม่ได้เป็นคนเริ่ม</b>การเปิดบัญชี — หน่วยงานต้นสังกัดเป็นคนตั้งคำขอจากข้อมูลบุคลากรที่มีอยู่แล้ว
+     คำขอวิ่งผ่านสายอนุมัติ และจะมาโผล่ในเมนูนี้<b>เฉพาะเมื่อผ่านการอนุมัติครบทุกขั้น</b></p>
+
+  <div style="overflow-x:auto;margin:0 0 10px;padding:4px 0">
+<svg viewBox="0 0 1020 760" role="img"
+     aria-label="Activity Diagram แบบ Swimlane การเปิดสิทธิใช้งานให้ผู้ใช้ใหม่"
+     font-family="IBM Plex Sans Thai, Noto Sans Thai, Sarabun, Segoe UI, sans-serif"
+     style="width:100%;min-width:900px;height:auto">
+  <defs>
+    <marker id="ob-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#6b7684"/></marker>
+    <marker id="ob-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#a06400"/></marker>
+    <marker id="ob-p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5e35b1"/></marker>
+    <marker id="ob-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#1565c0"/></marker>
+  </defs>
+
+  <rect x="10" y="46" width="244" height="700" rx="12" fill="#f7f8f8" stroke="#c6cad0"/>
+  <rect x="10" y="0" width="244" height="32" rx="16" fill="#6b7684"/>
+  <text x="132" y="21" text-anchor="middle" font-size="12.6" font-weight="700" fill="#fff">หน่วยงานต้นสังกัด</text>
+
+  <rect x="264" y="46" width="244" height="700" rx="12" fill="#fdf7ec" stroke="#e3c790"/>
+  <rect x="264" y="0" width="244" height="32" rx="16" fill="#a06400"/>
+  <text x="386" y="21" text-anchor="middle" font-size="12.6" font-weight="700" fill="#fff">ผู้มีอำนาจอนุมัติ</text>
+
+  <rect x="518" y="46" width="244" height="700" rx="12" fill="#f6f4fb" stroke="#c1b2e1"/>
+  <rect x="518" y="0" width="244" height="32" rx="16" fill="#5e35b1"/>
+  <text x="640" y="21" text-anchor="middle" font-size="12.6" font-weight="700" fill="#fff">ผู้ดูแลระบบ</text>
+
+  <rect x="772" y="46" width="244" height="700" rx="12" fill="#f3f7fb" stroke="#a6c4e7"/>
+  <rect x="772" y="0" width="244" height="32" rx="16" fill="#1565c0"/>
+  <text x="894" y="21" text-anchor="middle" font-size="12.6" font-weight="700" fill="#fff">ผู้ใช้ใหม่</text>
+
+  <path d="M132 134 V146 H386 V158" fill="none" stroke="#6b7684" stroke-width="2" marker-end="url(#ob-g)"/>
+  <text x="259" y="140" text-anchor="middle" font-size="10.6" font-weight="600" fill="#5b6572">คำขอเปิดสิทธิ</text>
+
+  <path d="M386 234 V246 H640 V258" fill="none" stroke="#a06400" stroke-width="2" marker-end="url(#ob-o)"/>
+  <text x="513" y="240" text-anchor="middle" font-size="10.6" font-weight="600" fill="#5b6572">อนุมัติครบทุกขั้น</text>
+
+  <line x1="640" y1="334" x2="640" y2="356" stroke="#5e35b1" stroke-width="2" marker-end="url(#ob-p)"/>
+  <line x1="640" y1="434" x2="640" y2="456" stroke="#5e35b1" stroke-width="2" marker-end="url(#ob-p)"/>
+
+  <path d="M640 534 V546 H894 V558" fill="none" stroke="#5e35b1" stroke-width="2" marker-end="url(#ob-p)"/>
+  <text x="767" y="540" text-anchor="middle" font-size="10.6" font-weight="600" fill="#5b6572">Username + รหัสผ่าน</text>
+
+  <line x1="894" y1="634" x2="894" y2="656" stroke="#1565c0" stroke-width="2" marker-end="url(#ob-b)"/>
+
+  <rect x="20" y="58" width="224" height="76" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="21" y="70" width="5" height="52" rx="2.5" fill="#6b7684"/>
+  <text x="36" y="82" font-size="12.2" font-weight="600" fill="#1b2027">ตั้งคำขอเปิดสิทธิใช้งาน</text>
+  <text x="36" y="100" font-size="10.8" fill="#5b6572">เลือกบุคลากรที่ยังไม่มีบัญชี</text>
+  <text x="36" y="116" font-size="10.8" fill="#5b6572">ระบุรายละเอียดและผู้อนุมัติ</text>
+  <text x="36" y="130" font-size="10.2" font-weight="600" fill="#6b7684">บริหารบุคลากร · คำขออนุมัติ</text>
+
+  <rect x="274" y="158" width="224" height="76" rx="9" fill="#ffffff" stroke="#d9be8a" stroke-width="1.6"/>
+  <rect x="275" y="170" width="5" height="52" rx="2.5" fill="#a06400"/>
+  <text x="290" y="182" font-size="12.2" font-weight="600" fill="#1b2027">พิจารณาและอนุมัติ</text>
+  <text x="290" y="200" font-size="10.8" fill="#5b6572">ถ้าไม่อนุมัติ คำขอจบที่นี่</text>
+  <text x="290" y="216" font-size="10.8" fill="#5b6572">ไม่ไปถึงผู้ดูแลระบบ</text>
+  <text x="290" y="230" font-size="10.2" font-weight="600" fill="#a06400">คำขออนุมัติ</text>
+
+  <rect x="528" y="258" width="224" height="76" rx="9" fill="#ffffff" stroke="#a68fd4" stroke-width="1.6"/>
+  <rect x="529" y="270" width="5" height="52" rx="2.5" fill="#5e35b1"/>
+  <text x="544" y="282" font-size="12.2" font-weight="600" fill="#1b2027">มีกลุ่มผู้ใช้งานที่ตรงหรือยัง</text>
+  <text x="544" y="300" font-size="10.8" fill="#5b6572">ถ้ายังไม่มี สร้างก่อน</text>
+  <text x="544" y="316" font-size="10.8" fill="#5b6572">แล้วค่อยกลับมาเปิดบัญชี</text>
+  <text x="544" y="330" font-size="10.2" font-weight="600" fill="#5e35b1">ผู้ดูแลระบบ › กลุ่มผู้ใช้งาน</text>
+
+  <rect x="528" y="358" width="224" height="76" rx="9" fill="#ffffff" stroke="#a68fd4" stroke-width="1.6"/>
+  <rect x="529" y="370" width="5" height="52" rx="2.5" fill="#5e35b1"/>
+  <text x="544" y="382" font-size="12.2" font-weight="600" fill="#1b2027">กด “เพิ่มผู้ใช้งาน” จากคำขอ</text>
+  <text x="544" y="400" font-size="10.8" fill="#5b6572">ข้อมูลบุคลากรถูกดึงมาให้</text>
+  <text x="544" y="416" font-size="10.8" fill="#5b6572">ตั้ง Username ให้ผู้ใช้</text>
+  <text x="544" y="430" font-size="10.2" font-weight="600" fill="#5e35b1">ผู้ดูแลระบบ › คำขอผู้ใช้งาน</text>
+
+  <rect x="528" y="458" width="224" height="76" rx="9" fill="#ffffff" stroke="#a68fd4" stroke-width="1.6"/>
+  <rect x="529" y="470" width="5" height="52" rx="2.5" fill="#5e35b1"/>
+  <text x="544" y="482" font-size="12.2" font-weight="600" fill="#1b2027">ผูกกลุ่มผู้ใช้งาน</text>
+  <text x="544" y="500" font-size="10.8" fill="#5b6572">พร้อมหน่วยงานและช่วงวันที่</text>
+  <text x="544" y="516" font-size="10.8" fill="#5b6572">อย่างน้อย 1 กลุ่ม</text>
+  <text x="544" y="530" font-size="10.2" font-weight="600" fill="#5e35b1">หน้าเดียวกัน</text>
+
+  <rect x="782" y="558" width="224" height="76" rx="9" fill="#ffffff" stroke="#7eaadc" stroke-width="1.6"/>
+  <rect x="783" y="570" width="5" height="52" rx="2.5" fill="#1565c0"/>
+  <text x="798" y="582" font-size="12.2" font-weight="600" fill="#1b2027">เข้าสู่ระบบครั้งแรก</text>
+  <text x="798" y="600" font-size="10.8" fill="#5b6572">ถูกบังคับเปลี่ยนรหัสผ่าน</text>
+  <text x="798" y="616" font-size="10.8" fill="#5b6572">ตามนโยบายที่ตั้งไว้</text>
+
+  <rect x="782" y="658" width="224" height="76" rx="9" fill="#e9f6ea" stroke="#8cc190" stroke-width="1.6"/>
+  <rect x="783" y="670" width="5" height="52" rx="2.5" fill="#2e7d32"/>
+  <text x="798" y="682" font-size="12.2" font-weight="600" fill="#1b2027">เห็นเมนูตามสิทธิ</text>
+  <text x="798" y="700" font-size="10.8" fill="#5b6572">สิทธิถูกอ่านตอนเข้าระบบ</text>
+  <text x="798" y="716" font-size="10.8" fill="#5b6572">แก้สิทธิแล้วต้องล็อกอินใหม่</text>
+</svg>
+  </div>
+
+  <ol class="steps steps--purple">
+    <li><b>เปิดรายการคำขอ</b>
+      <p>ตารางแสดง วันที่ส่งคำขอ · รหัสบุคลากร · ชื่อ-นามสกุล · อีเมล · หน่วยงานหลัก · ตำแหน่ง</p>
+      <p>ค้นหาได้ด้วยรหัสบุคลากร ชื่อ หรืออีเมล และกรองด้วยวันที่ส่งคำขอ หน่วยงานหลัก ตำแหน่ง</p>
+    </li>
+    <li><b>กด “เพิ่มผู้ใช้งาน” ที่แถวนั้น</b>
+      <p>ระบบพาไปหน้าจัดการผู้ใช้ พร้อมข้อมูลบุคลากรที่กรอกมาให้แล้ว</p>
+      <p class="small">ถ้าบุคลากรคนนั้นมีบัญชีอยู่แล้ว ระบบจะถามว่าต้องการแก้ไขข้อมูลผู้ใช้เดิมหรือไม่ — ไม่สร้างบัญชีซ้ำให้</p>
+    </li>
+  </ol>
+
+  <div class="note note--warn">
+    <b class="note__label">คำขอไม่ขึ้นในรายการ ตรวจ 2 อย่าง</b>
+    <p><b>(1)</b> คำขอนั้นอนุมัติครบทุกขั้นแล้วหรือยัง — ถ้ายังมีขั้นค้างอยู่ จะไม่ขึ้นที่นี่<br>
+       <b>(2)</b> บุคลากรคนนั้นถูกบันทึกในโมดูลบริหารบุคลากรแล้วหรือยัง — ถ้ายังไม่มีข้อมูลบุคลากร ตั้งคำขอไม่ได้ตั้งแต่ต้นทาง</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m11">11 · ผู้ใช้งาน</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/user/users</code></span>
+    <span class="role"><b>ทำได้:</b> เพิ่ม · ดู · แก้ไข · ลบ</span>
+    <span class="role"><b>ความถี่:</b> ทุกวัน</span>
+  </div>
+
+  <p>เมนูที่ใช้บ่อยที่สุดหลังระบบเปิดใช้งาน — ทั้งเปิดบัญชีใหม่ ปรับสิทธิ ปลดล็อกรหัสผ่าน และปิดบัญชีคนลาออก</p>
+
+  <h3>หน้ารายชื่อผู้ใช้งาน</h3>
+
+  <p>ค้นหาด้วยชื่อหรือรหัสบุคลากร และกรองด้วยสถานะ (Active / Inactive) ·
+     ตารางแสดง รหัสบุคลากร · ชื่อ (ภาษาไทย) · นามสกุล (ภาษาไทย) · สถานะการใช้งาน ·
+     แต่ละแถวมีปุ่ม <b>ดู/แก้ไข</b> และ <b>ปลดล็อครหัสผ่าน</b></p>
+
+  <h3>หน้าจัดการผู้ใช้งาน</h3>
+
+  <ol class="steps steps--purple">
+    <li><b>ตรวจข้อมูลส่วนตัวที่ดึงมาจากบุคลากร</b>
+      <p>รหัส SAP · รหัสบุคลากร · ชื่อ-นามสกุลไทย/อังกฤษ · เลขประจำตัวประชาชน · เบอร์โทร · อีเมล</p>
+      <p class="small">ช่องรหัส SAP และอีเมลแก้ที่นี่ไม่ได้ ถ้าผิดต้องกลับไปแก้ที่โมดูลบริหารบุคลากร</p>
+    </li>
+    <li><b>ตั้ง Username</b>
+      <p>ตั้งให้เป็นรูปแบบเดียวกันทั้งโรงพยาบาลจะดูแลง่ายกว่า เช่น ใช้รหัสบุคลากร หรือ ชื่อ.นามสกุลย่อ</p>
+    </li>
+    <li><b>กด “เพิ่มกลุ่มผู้ใช้งาน” — ขั้นที่ขาดไม่ได้</b>
+      <p>ในกล่องที่เปิดขึ้น ระบุ <b>กลุ่มผู้ใช้งาน</b> · <b>วันที่เริ่มต้น</b> · <b>วันที่สิ้นสุด</b> ·
+         แล้วกด “เพิ่มคลินิก/หน่วยงาน” เลือกหน่วยงานที่กลุ่มนี้ใช้งานได้ (เลือกได้หลายหน่วยงาน)</p>
+      <p>เพิ่มได้หลายแถว เช่น คนหนึ่งเป็นพยาบาลที่วอร์ด A และเป็นผู้ตรวจสอบที่คลินิก B</p>
+      <p class="small">ระบบตรวจข้อมูลซ้ำให้ และบังคับว่าต้องมีกลุ่มผู้ใช้งานอย่างน้อย 1 รายการจึงจะบันทึกได้</p>
+    </li>
+    <li><b>ตั้งสถานะบัญชี</b>
+      <p><b>สถานะการใช้งาน</b> — ปิดเมื่อคนลาออกหรือย้ายออก ·
+         <b>ล็อคบัญชีผู้ใช้งาน</b> — ใช้ระงับชั่วคราวระหว่างสอบสวนหรือสงสัยว่าบัญชีถูกใช้ผิด</p>
+    </li>
+    <li><b>บันทึก แล้วส่ง Username/รหัสผ่านให้ผู้ใช้</b>
+      <p>ถ้าเปิดค่า “เปลี่ยนรหัสผ่านในครั้งแรกที่เข้าสู่ระบบ” ไว้ ผู้ใช้จะถูกบังคับเปลี่ยนเองตอนล็อกอินครั้งแรก</p>
+    </li>
+  </ol>
+
+  <h3>งานที่ทำจากเมนูนี้บ่อย ๆ</h3>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>สถานการณ์</th><th>ทำอย่างไร</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><b>ผู้ใช้ใส่รหัสผิดจนบัญชีถูกล็อก</b></td>
+        <td>หน้ารายชื่อผู้ใช้งาน → กด <b>ปลดล็อครหัสผ่าน</b> ที่แถวนั้น ·
+            หรือปล่อยให้ระบบปลดเองเมื่อครบเวลาที่ตั้งไว้ในแท็บ “งานผู้ดูแลระบบ”</td>
+      </tr>
+      <tr>
+        <td><b>ย้ายหน่วยงาน</b></td>
+        <td>เปิดผู้ใช้ → แถวกลุ่มผู้ใช้งานเดิม ใส่ <b>วันที่สิ้นสุด</b> → เพิ่มแถวใหม่ที่หน่วยงานใหม่พร้อมวันที่เริ่มต้น ·
+            ประวัติเก่ายังอยู่ ตรวจสอบย้อนหลังได้</td>
+      </tr>
+      <tr>
+        <td><b>ลาออก</b></td>
+        <td>ปิด <b>สถานะการใช้งาน</b> — อย่าลบบัญชี เพราะบัญชีถูกอ้างอิงในประวัติการรักษาและเอกสารที่ออกไปแล้ว</td>
+      </tr>
+      <tr>
+        <td><b>ขอเพิ่มสิทธิชั่วคราว</b></td>
+        <td>เพิ่มแถวกลุ่มผู้ใช้งานใหม่ พร้อมกำหนดวันที่เริ่มต้น-สิ้นสุดให้ครอบเฉพาะช่วงที่ต้องการ · หมดวันแล้วสิทธิหมดเอง</td>
+      </tr>
+      <tr>
+        <td><b>ถูกถามว่าใครแก้สิทธิของคนนี้</b></td>
+        <td>เปิดผู้ใช้ → กด <b>ประวัติการแก้ไข</b> · ดูได้ว่าแก้อะไร ข้อมูลก่อน/หลังการแก้ไข วันที่แก้ ใครแก้ ·
+            เลือกช่วงวันที่แล้วกด <b>ออกรายงาน</b> ได้</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="ex">
+    <b class="exlabel">ตัวอย่าง · เปิดบัญชีพยาบาลใหม่ 1 คน</b>
+    <ol>
+      <li>หัวหน้าวอร์ดตั้งคำขอเปิดสิทธิให้พยาบาลที่ HR บันทึกข้อมูลบุคลากรไว้แล้ว ระบุผู้อนุมัติ</li>
+      <li>ผู้อนุมัติกดอนุมัติ คำขอไหลมาที่เมนู <b>คำขอผู้ใช้งาน</b> ของผู้ดูแลระบบ</li>
+      <li>ผู้ดูแลระบบตรวจก่อนว่ามีกลุ่ม “พยาบาลหอผู้ป่วยใน” อยู่แล้ว — มี จึงข้ามขั้นสร้างกลุ่ม</li>
+      <li>กด <b>เพิ่มผู้ใช้งาน</b> ที่แถวนั้น → ตั้ง Username เป็นรหัสบุคลากร</li>
+      <li>กด <b>เพิ่มกลุ่มผู้ใช้งาน</b> → เลือก “พยาบาลหอผู้ป่วยใน” · วันที่เริ่มต้น = วันเริ่มงาน · ไม่ใส่วันที่สิ้นสุด ·
+          เพิ่มคลินิก/หน่วยงาน = หอผู้ป่วยใน 5A</li>
+      <li>บันทึก แล้วแจ้ง Username/รหัสผ่านให้เจ้าตัว</li>
+      <li>พยาบาลล็อกอิน ระบบบังคับเปลี่ยนรหัสผ่าน แล้วเห็นเฉพาะเมนูของหอผู้ป่วยใน</li>
+    </ol>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m12">12 · Personal Access Token</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/personal-access-token</code></span>
+    <span class="role"><b>ทำได้:</b> เพิ่ม · ดู · แก้ไข · ลบ</span>
+    <span class="role"><b>ใช้กับ:</b> ระบบภายนอกที่เรียก API</span>
+  </div>
+
+  <p>Token คือกุญแจให้<b>ระบบอื่น</b> (ไม่ใช่คน) เรียกใช้งาน HA.OS ได้
+     เช่น ระบบแล็บภายนอก เครื่องมือแพทย์ที่ส่งผลเข้ามา หรือสคริปต์ดึงข้อมูลไปทำรายงาน
+     Token ทำงานภายใต้<b>สิทธิของผู้ใช้ที่ผูกไว้</b> — ผูกกับใคร ก็ทำได้เท่าที่คนนั้นทำได้</p>
+
+  <ol class="steps steps--purple">
+    <li><b>เตรียมบัญชีผู้ใช้สำหรับระบบเชื่อมต่อก่อน</b>
+      <p>อย่าผูก Token กับบัญชีส่วนตัวของพนักงาน — ถ้าคนนั้นลาออกแล้วปิดบัญชี ระบบเชื่อมต่อจะล่มทันที ·
+         ควรเปิดบัญชีแยกไว้เฉพาะงานเชื่อมต่อ และให้กลุ่มผู้ใช้งานที่มีสิทธิเท่าที่จำเป็นจริง ๆ</p>
+    </li>
+    <li><b>กด “สร้าง Token”</b>
+      <p>กรอก <b>Token name</b> (ตั้งให้รู้ว่าใครใช้ เช่น “ระบบแล็บภายนอก”) · เลือก <b>ผู้ใช้งาน</b> ·
+         ตั้ง <b>วันหมดอายุ</b> หรือติ๊ก <b>ไม่มีวันหมดอายุ</b> · ตั้ง <b>สถานะการใช้งาน</b></p>
+    </li>
+    <li><b>คัดลอกค่า Token ทันที</b>
+      <p>ระบบแสดงค่า Token พร้อมปุ่ม <b>คัดลอก</b> ในกล่อง “สร้าง Token สำเร็จ !”
+         <b>ครั้งเดียวเท่านั้น</b> ปิดกล่องแล้วดูย้อนหลังไม่ได้ ถ้าทำหาย ต้องสร้างใหม่</p>
+    </li>
+    <li><b>ส่งให้ทีมที่ดูแลระบบปลายทางอย่างปลอดภัย</b>
+      <p>อย่าส่งทางแชตกลุ่มหรืออีเมลที่มีคนอ่านหลายคน</p>
+    </li>
+    <li><b>ตามดูวันหมดอายุ</b>
+      <p>ตั้งค่า “แจ้งเตือนล่วงหน้า Personal Token หมดอายุ (วัน)” ไว้ที่หน้า <b>ตั้งค่าระบบต่างๆ › งานผู้ดูแลระบบ</b>
+         จะได้รู้ก่อนที่ระบบเชื่อมต่อจะหยุดทำงาน</p>
+    </li>
+  </ol>
+
+  <div class="note note--danger">
+    <b class="note__label">“ไม่มีวันหมดอายุ” ใช้เท่าที่จำเป็น</b>
+    <p>Token ที่ไม่หมดอายุคือกุญแจที่ใช้ได้ตลอดไป ถ้าหลุดออกไปจะไม่มีอะไรหยุดมันเอง
+       ถ้าจำเป็นต้องใช้ ควรจดไว้ว่าใครถือ และทบทวนทุกปี · เมื่อเลิกใช้ให้ปิดสถานะหรือลบทิ้งทันที</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="m13">13 · รายงาน</h2>
+
+  <div class="roles">
+    <span class="role"><b>เส้นทาง:</b> <code>/admin/report/:module</code></span>
+    <span class="role"><b>ทำได้:</b> ดู · ส่งออก</span>
+    <span class="role"><b>ต้นทางรายการ:</b> เมนู 7 รายงานในระบบ</span>
+  </div>
+
+  <p>เมนูนี้คือที่<b>เรียกใช้</b>รายงาน ต่างจากเมนู 7 ที่เป็นที่<b>ติดตั้ง</b>รายงาน</p>
+
+  <ol class="steps steps--purple">
+    <li><b>เลือกรายงานจากรายการ</b><p>เห็นเฉพาะรายงานที่กลุ่มผู้ใช้งานของตัวเองถูกผูกไว้</p></li>
+    <li><b>กรอกพารามิเตอร์</b><p>ช่องที่ขึ้นมาคือช่องที่ประกาศไว้ตอนติดตั้งรายงาน เช่น ช่วงวันที่ หน่วยงาน สิทธิ</p></li>
+    <li><b>ดูผล แล้วส่งออกถ้าต้องการ</b><p>ปุ่มส่งออกจะขึ้นเฉพาะกลุ่มผู้ใช้งานที่มีสิทธิ “ส่งออก”</p></li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="routine">งานประจำหลังเปิดใช้ระบบ</h2>
+
+  <p>เมื่อตั้งระบบเสร็จแล้ว งานของผู้ดูแลระบบเปลี่ยนจาก “ตั้งค่า” เป็น “ดูแลเป็นรอบ”</p>
+
+  <div style="overflow-x:auto;margin:0 0 10px;padding:4px 0">
+<svg viewBox="0 0 1020 214" role="img"
+     aria-label="Activity Diagram งานประจำของผู้ดูแลระบบที่วนเป็นรอบ"
+     font-family="IBM Plex Sans Thai, Noto Sans Thai, Sarabun, Segoe UI, sans-serif"
+     style="width:100%;min-width:880px;height:auto">
+  <defs>
+    <marker id="rt-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#9aa4b1"/></marker>
+    <marker id="rt-l" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#5e35b1"/></marker>
+  </defs>
+
+  <rect x="10" y="16" width="182" height="96" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="11" y="28" width="5" height="72" rx="2.5" fill="#5e35b1"/>
+  <text x="26" y="40" font-size="11.4" font-weight="700" fill="#5e35b1">ทุกวัน</text>
+  <text x="26" y="60" font-size="12" font-weight="600" fill="#1b2027">เปิดบัญชี · ปลดล็อก</text>
+  <text x="26" y="78" font-size="10.8" fill="#5b6572">รับคำขอที่อนุมัติแล้ว</text>
+  <text x="26" y="94" font-size="10.8" fill="#5b6572">ปลดล็อกรหัสผ่านที่ติด</text>
+
+  <line x1="192" y1="64" x2="212" y2="64" stroke="#9aa4b1" stroke-width="2" marker-end="url(#rt-a)"/>
+
+  <rect x="216" y="16" width="182" height="96" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="217" y="28" width="5" height="72" rx="2.5" fill="#5e35b1"/>
+  <text x="232" y="40" font-size="11.4" font-weight="700" fill="#5e35b1">ทุกเดือน</text>
+  <text x="232" y="60" font-size="12" font-weight="600" fill="#1b2027">ปิดบัญชีคนที่ออก</text>
+  <text x="232" y="78" font-size="10.8" fill="#5b6572">เทียบกับรายชื่อจาก HR</text>
+  <text x="232" y="94" font-size="10.8" fill="#5b6572">ดูการแจ้งเตือนล่วงหน้า</text>
+
+  <line x1="398" y1="64" x2="418" y2="64" stroke="#9aa4b1" stroke-width="2" marker-end="url(#rt-a)"/>
+
+  <rect x="422" y="16" width="182" height="96" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="423" y="28" width="5" height="72" rx="2.5" fill="#5e35b1"/>
+  <text x="438" y="40" font-size="11.4" font-weight="700" fill="#5e35b1">ทุกไตรมาส</text>
+  <text x="438" y="60" font-size="12" font-weight="600" fill="#1b2027">ทบทวนสิทธิ</text>
+  <text x="438" y="78" font-size="10.8" fill="#5b6572">กลุ่มผู้ใช้งานยังตรงงานไหม</text>
+  <text x="438" y="94" font-size="10.8" fill="#5b6572">ใครมีสิทธิเกินความจำเป็น</text>
+
+  <line x1="604" y1="64" x2="624" y2="64" stroke="#9aa4b1" stroke-width="2" marker-end="url(#rt-a)"/>
+
+  <rect x="628" y="16" width="182" height="96" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="629" y="28" width="5" height="72" rx="2.5" fill="#5e35b1"/>
+  <text x="644" y="40" font-size="11.4" font-weight="700" fill="#5e35b1">ก่อนหมดอายุ</text>
+  <text x="644" y="60" font-size="12" font-weight="600" fill="#1b2027">ต่ออายุ Token</text>
+  <text x="644" y="78" font-size="10.8" fill="#5b6572">ดูการแจ้งเตือนล่วงหน้า</text>
+  <text x="644" y="94" font-size="10.8" fill="#5b6572">ออกใหม่ก่อนของเดิมหมด</text>
+
+  <line x1="810" y1="64" x2="830" y2="64" stroke="#9aa4b1" stroke-width="2" marker-end="url(#rt-a)"/>
+
+  <rect x="834" y="16" width="182" height="96" rx="9" fill="#ffffff" stroke="#adb3bb" stroke-width="1.6"/>
+  <rect x="835" y="28" width="5" height="72" rx="2.5" fill="#5e35b1"/>
+  <text x="850" y="40" font-size="11.4" font-weight="700" fill="#5e35b1">ต้นปีงบประมาณ</text>
+  <text x="850" y="60" font-size="12" font-weight="600" fill="#1b2027">ตรวจเลขที่เอกสาร</text>
+  <text x="850" y="78" font-size="10.8" fill="#5b6572">ปีเปลี่ยนแล้วเลขรีเซ็ตจริงไหม</text>
+  <text x="850" y="94" font-size="10.8" fill="#5b6572">ตรวจจากเอกสารใบแรกของปี</text>
+
+  <path d="M925 112 V166 H101 V120" fill="none" stroke="#5e35b1" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#rt-l)"/>
+  <text x="514" y="160" text-anchor="middle" font-size="11" font-weight="600" fill="#5e35b1">วนกลับมาเริ่มรอบใหม่</text>
+  <text x="514" y="194" text-anchor="middle" font-size="11" fill="#8b95a3">ทุกครั้งที่เปลี่ยนค่าในเมนูตั้งค่าระบบ ให้แจ้งหน่วยงานที่ได้รับผลกระทบล่วงหน้า</text>
+</svg>
+  </div>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>รอบ</th><th>ทำอะไร</th><th>ที่เมนู</th></tr></thead>
+    <tbody>
+      <tr><td><b>ทุกวัน</b></td><td>เปิดบัญชีตามคำขอที่อนุมัติแล้ว · ปลดล็อกรหัสผ่านที่ถูกล็อก</td><td>คำขอผู้ใช้งาน · ผู้ใช้งาน</td></tr>
+      <tr><td><b>ทุกสัปดาห์</b></td><td>ตรวจว่ามีคำขอค้างที่ยังไม่ได้ดำเนินการหรือไม่</td><td>คำขอผู้ใช้งาน</td></tr>
+      <tr><td><b>ทุกเดือน</b></td><td>ปิดบัญชีคนลาออก/ย้ายออก เทียบกับรายชื่อจาก HR · ดูการแจ้งเตือนยกเลิกผู้ใช้งานล่วงหน้า</td><td>ผู้ใช้งาน · ตั้งค่าระบบต่างๆ</td></tr>
+      <tr><td><b>ทุกไตรมาส</b></td><td>ทบทวนว่ากลุ่มผู้ใช้งานยังตรงกับหน้าที่งานจริง และไม่มีใครมีสิทธิเกินจำเป็น</td><td>กลุ่มผู้ใช้งาน · ผู้ใช้งาน</td></tr>
+      <tr><td><b>ตามการแจ้งเตือน</b></td><td>ต่ออายุหรือออก Token ใหม่ก่อนของเดิมหมดอายุ</td><td>Personal Access Token</td></tr>
+      <tr><td><b>ต้นปีงบประมาณ</b></td><td>ตรวจว่าเลขที่เอกสารรีเซ็ตและขึ้นปีใหม่ถูกต้อง · ตรวจเล่มที่ใบเสร็จ/ใบแจ้งหนี้</td><td>กำหนดเลขที่เอกสาร · ตั้งค่าระบบต่างๆ</td></tr>
+      <tr><td><b>เมื่อมีรายงาน/ฟอร์มใหม่</b></td><td>อัปโหลดเวอร์ชันใหม่ ทดสอบ แล้วเปิดใช้งาน</td><td>แบบฟอร์มในระบบ · รายงานในระบบ</td></tr>
+      <tr><td><b>เมื่อมีหน่วยงานใหม่</b></td><td>เพิ่มรหัสสถานที่ → ตั้งค่าใช้จ่ายและเวลาให้บริการ → ผูกผู้ใช้เข้าหน่วยงานใหม่</td><td>รหัสสถานที่ · ผู้ใช้งาน</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="faq">ปัญหาที่พบบ่อย</h2>
+
+  <div class="faq">
+    <div>
+      <h4>ผู้ใช้เข้าระบบได้ แต่ไม่เห็นเมนูอะไรเลย</h4>
+      <p>เปิด <b>ผู้ใช้งาน</b> → ดูว่ามีแถวกลุ่มผู้ใช้งานหรือยัง ถ้ามีแล้วให้ดู <b>วันที่เริ่มต้น/สิ้นสุด</b>
+         ว่าครอบวันนี้จริงไหม · ถ้าครบแล้วยังไม่เห็น ให้ตรวจที่ <b>กลุ่มผู้ใช้งาน</b> ว่าติ๊กสิทธิ “ดู” ของเมนูนั้นไว้หรือเปล่า</p>
+    </div>
+    <div>
+      <h4>แก้สิทธิให้แล้ว แต่ผู้ใช้ยังบอกว่าเหมือนเดิม</h4>
+      <p>สิทธิถูกอ่านตอนเข้าสู่ระบบ ให้ผู้ใช้<b>ออกจากระบบแล้วเข้าใหม่</b>
+         ไม่ใช่แค่กด Refresh หน้าจอ</p>
+    </div>
+    <div>
+      <h4>สร้างสถานที่ไม่ได้ เพราะช่องประเภท/แผนก/ตึก ว่าง</h4>
+      <p>ช่อง <b>แผนก</b> และ <b>ตึก</b> มาจากรหัสหลักของผู้ดูแลระบบ · ช่อง <b>ประเภท</b> มาจากรหัสหลักของคลังผู้ป่วย
+         ต้องไปเพิ่มข้อมูลที่ต้นทางก่อน แล้วกลับมาใหม่</p>
+    </div>
+    <div>
+      <h4>บันทึกเอกสารแล้วเลขที่ไม่ออก</h4>
+      <p>ตรวจ 2 จุดตามลำดับ — <b>(1)</b> เมนู <b>กำหนดเลขที่เอกสาร</b> ผูกรูปแบบให้เอกสารชนิดนั้นแล้วหรือยัง ·
+         <b>(2)</b> รูปแบบที่ผูกไว้มีบล็อก Running ครบและตั้งจำนวนหลักไว้หรือไม่</p>
+    </div>
+    <div>
+      <h4>เลขที่เอกสารซ้ำกับของระบบเดิม</h4>
+      <p>ยังไม่ได้ตั้ง <b>เลขที่ล่าสุด</b> ที่เมนูกำหนดเลขที่เอกสาร · ตั้งให้ต่อจากเลขสุดท้ายของระบบเดิม
+         เอกสารที่ออกซ้ำไปแล้วต้องออกใบยกเลิกและใบใหม่ แก้ย้อนหลังในระบบไม่ได้</p>
+    </div>
+    <div>
+      <h4>รายงานที่ติดตั้งไว้ไม่มีใครเห็น</h4>
+      <p>เปิด <b>รายงานในระบบ</b> → ตรวจว่าใส่ <b>ระบบงาน</b> และกด <b>เพิ่มสิทธิ</b> เลือกกลุ่มผู้ใช้งานแล้วหรือยัง ·
+         และตรวจว่า <b>สถานะการใช้งาน</b> เปิดอยู่</p>
+    </div>
+    <div>
+      <h4>พิมพ์แบบฟอร์มออกมาแล้วข้อมูลว่าง</h4>
+      <p>มักเกิดจาก <b>ชื่อตัวแปร</b> ของพารามิเตอร์สะกดไม่ตรงกับที่ใช้ในไฟล์ SQL
+         เปิดหน้าแก้ไขแบบฟอร์ม กดดู <b>พารามิเตอร์</b> แล้วเทียบกับ SQL ทีละตัว</p>
+    </div>
+    <div>
+      <h4>คำขอผู้ใช้งานไม่ขึ้นในรายการ</h4>
+      <p>รายการนี้แสดงเฉพาะคำขอที่<b>อนุมัติครบทุกขั้นแล้ว</b>
+         ถ้ายังมีขั้นค้าง ให้ไปตามที่โมดูลคำขออนุมัติ · และตรวจว่าบุคลากรคนนั้นถูกบันทึกในโมดูลบริหารบุคลากรแล้ว</p>
+    </div>
+    <div>
+      <h4>ระบบเชื่อมต่อภายนอกหยุดทำงานกะทันหัน</h4>
+      <p>ตรวจ <b>Personal Access Token</b> ว่าหมดอายุ ถูกปิดสถานะ หรือบัญชีเจ้าของ Token ถูกปิดการใช้งานหรือไม่ ·
+         ป้องกันได้ด้วยการตั้งแจ้งเตือนล่วงหน้า และไม่ผูก Token กับบัญชีส่วนตัวของพนักงาน</p>
+    </div>
+    <div>
+      <h4>บัญชีถูกล็อกกันทั้งหน่วยงาน</h4>
+      <p>มักเกิดหลังเปลี่ยนค่า <b>จำนวนครั้งที่ใส่รหัสผ่านผิดได้</b> ให้ต่ำเกินไป
+         ปรับค่าที่ <b>ตั้งค่าระบบต่างๆ › งานผู้ดูแลระบบ</b> แล้วปลดล็อกรายคนจากหน้ารายชื่อผู้ใช้งาน</p>
+    </div>
+  </div>
+
+  <p class="annex">อ่านต่อ:
+     <a href="05-admin.html">คู่มือการใช้งานงานผู้ดูแลระบบ (ภาพรวม)</a> ·
+     <a href="05-admin-tech.html">ภาคผนวกเชิงเทคนิค — เมนู สิทธิ โครงสร้างข้อมูล และ API</a></p>
+
+  <div class="footer">
+    <span><a href="05-admin.html">← งานผู้ดูแลระบบ (ภาพรวม)</a></span>
+    <span>ถัดไป: <a href="06-smartipd-doctor.html">Smart IPD สำหรับแพทย์ →</a></span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

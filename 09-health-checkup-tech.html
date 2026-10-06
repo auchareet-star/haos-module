@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>09 · ห้องตรวจสุขภาพ — HA.OS Module Flow</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="m9">
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <p class="crumb"><a href="index.html">หน้าแรก</a> › Health Check-up › 09 ห้องตรวจสุขภาพ</p>
+
+  <div class="page-head">
+    <h1>09 · ห้องตรวจสุขภาพ (Health Check-up)</h1>
+    <p>ระบบตรวจสุขภาพเป็นแอปแยก (Angular + PrimeNG) ที่มี backend ของตัวเอง
+       (<code>HAOS.HealthCheckup.*</code>) วางคู่กับ HA.OS ในโซลูชันเดียวกัน
+       รองรับทั้งการตรวจ <b>รายบุคคล</b> (Walk-in) และ <b>รายกลุ่มตามโครงการ</b> (เชิงรุก / เชิงรับ)
+       โดยหัวใจของ Flow คือแนวคิด <b>Station</b> — ผู้ป่วยเดินผ่านจุดตรวจทีละจุดจนครบ</p>
+  </div>
+
+  <div class="toc">
+    <b>หัวข้อในหน้านี้</b>
+    <ol>
+      <li><a href="#concept">แนวคิดหลัก · Station &amp; Activity</a></li>
+      <li><a href="#setup">ขั้นที่ 0 — ตั้งค่ารหัสหลัก</a></li>
+      <li><a href="#package">ขั้นที่ 1 — จัดการ Package</a></li>
+      <li><a href="#project">ขั้นที่ 2 — สร้างโครงการ</a></li>
+      <li><a href="#order">ขั้นที่ 3 — สั่ง Package</a></li>
+      <li><a href="#appoint">ขั้นที่ 4 — นัดหมาย</a></li>
+      <li><a href="#checklist">ขั้นที่ 5 — Checklist Station</a></li>
+      <li><a href="#doctor">ขั้นที่ 6 — ห้องตรวจแพทย์</a></li>
+      <li><a href="#import">ขั้นที่ 7 — นำเข้าผลตรวจ</a></li>
+      <li><a href="#summary">ขั้นที่ 8 — สรุปผล</a></li>
+      <li><a href="#portal">ขั้นที่ 9 — Patient Portal</a></li>
+      <li><a href="#menu">เมนู · API</a></li>
+      <li><a href="#pitfall">ข้อควรระวัง</a></li>
+    </ol>
+  </div>
+
+  <div class="roles">
+    <span class="role"><b>Frontend:</b> <code>HAOS-HealthCheckup-WebClient</code></span>
+    <span class="role"><b>Backend:</b> <code>HAOS.HealthCheckup.WebAPI</code> · <code>.Service</code> · <code>.DAL</code> · <code>.Batch</code></span>
+    <span class="role"><b>Root:</b> <code>/health-checkup</code></span>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="concept">แนวคิดหลัก — Station &amp; Activity</h2>
+
+  <h3>Station (จุดตรวจ)</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>รหัส</th><th>ชื่อ</th><th>Route segment</th><th>ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><code>V</code></td><td>Vital Signs (คัดกรอง)</td><td><code>vital-sign</code></td><td>ชั่งน้ำหนัก วัดส่วนสูง ความดัน ชีพจร SpO2</td></tr>
+      <tr><td><code>L</code></td><td>Lab</td><td><code>lab</code></td><td>เจาะเลือด / เก็บสิ่งส่งตรวจ</td></tr>
+      <tr><td><code>X</code></td><td>X-ray</td><td><code>x-ray</code></td><td>เอกซเรย์</td></tr>
+      <tr><td><code>PE</code></td><td>Physical Examination</td><td><code>physical</code></td><td>ห้องตรวจแพทย์</td></tr>
+      <tr><td><code>S</code></td><td>Service</td><td><code>order</code></td><td>บริการอื่นในแพ็กเกจ</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">ค่าคงที่: <code>HAOS.HealthCheckup.Core/Const/constStation.cs</code></p>
+
+  <h3>สถานะการเข้ารับตรวจ (<code>constCheckStatus</code>)</h3>
+  <p>
+    <span class="pill pill--gray">Pending</span> รอดำเนินการ ·
+    <span class="pill pill--green">Done</span> เสร็จสิ้น ·
+    <span class="pill pill--red">Cancel</span> ยกเลิก
+  </p>
+
+  <h3>2 โหมดการทำงาน</h3>
+  <div class="grid grid--2">
+    <div class="card">
+      <h4>รายบุคคล (Single)</h4>
+      <p>อ้างอิงด้วย <code>hcServiceId</code> — ผู้ป่วยเดินเข้ามาเอง สั่ง Package ให้ทีละคน
+         เส้นทางมี <code>/single/…</code> กำกับ</p>
+    </div>
+    <div class="card">
+      <h4>รายกลุ่ม (Activity)</h4>
+      <p>อ้างอิงด้วย <code>hcActivityId</code> — จัดเป็นโครงการ มีผู้เข้าร่วมหลายคน
+         แยกเป็น <b>เชิงรุก (proactive)</b> = ออกหน่วยนอกสถานที่
+         และ <b>เชิงรับ (defensive)</b> = ผู้รับบริการมาที่โรงพยาบาล</p>
+    </div>
+  </div>
+
+  <ul class="flow">
+    <li><b>เวชระเบียน</b><span>ลงทะเบียน</span></li>
+    <li><b>Package</b><span>สร้างชุดตรวจ</span></li>
+    <li><b>สั่ง Package</b><span>เดี่ยว/กลุ่ม</span></li>
+    <li><b>นัดหมาย</b><span>จองวันเวลา</span></li>
+    <li><b>Checklist</b><span>V → L → X</span></li>
+    <li><b>ห้องตรวจแพทย์</b><span>PE</span></li>
+    <li class="is-done"><b>สรุปผล</b><span>+ Portal</span></li>
+  </ul>
+
+  <!-- ================================================================== -->
+  <h2 id="setup">ขั้นที่ 0 — ตั้งค่ารหัสหลัก</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมนู</th><th>เส้นทาง</th><th>ตั้งค่าอะไร</th></tr></thead>
+    <tbody>
+      <tr><td>รหัสหน่วยงานและบริษัท</td><td><code>/health-checkup/main-code/company-code</code></td>
+          <td>บริษัท/หน่วยงานที่เป็นเจ้าของโครงการตรวจสุขภาพ (<code>TbCompany</code>) — ใช้ในรายงานค่าใช้จ่ายรายบริษัท</td></tr>
+      <tr><td>กำหนดค่าการแปลผล Vital Sign</td><td><code>/health-checkup/main-code/setting-vital-signs</code></td>
+          <td>เกณฑ์ปกติ/ผิดปกติของแต่ละค่า (<code>TbVitalSignsSetting</code>)</td></tr>
+      <tr><td>กำหนดกลุ่ม Lab ตรวจสุขภาพ</td><td><code>/health-checkup/main-code/setting-lab</code></td>
+          <td>Map รหัส Lab ของ HA.OS เข้ากับกลุ่ม Lab ตรวจสุขภาพ (Lab Mapping)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>ค่าที่ระบบใช้แปลผล Vital Sign</h3>
+  <p><code>Weight</code>, <code>Height</code>, <code>BMI</code>,
+     <code>Systolic Blood Pressure</code>, <code>Diastolic Blood Pressure</code>,
+     <code>Pulse</code>, <code>Oxygen Saturation (SpO2)</code>, <code>Temperature</code>
+     — ผลการแปลออกมาเป็น
+     <span class="pill pill--green">normal</span>
+     <span class="pill pill--amber">warning</span>
+     <span class="pill pill--red">abnormal</span>
+     <span class="pill pill--gray">pending</span></p>
+
+  <!-- ================================================================== -->
+  <h2 id="package">ขั้นที่ 1 — จัดการ Package</h2>
+
+  <p><code>/health-checkup/package-list</code> → <code>/package-list/manage</code>
+     (แก้ไข: <code>/package-list/manage/:id/:action</code>)</p>
+
+  <ol class="steps">
+    <li><b>สร้าง Package ใหม่</b><p>ตั้งชื่อ, กลุ่มเป้าหมาย, ช่วงอายุ/เพศที่เหมาะสม</p></li>
+    <li>
+      <b>เลือกวิธีคิดราคา</b>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>รหัส</th><th>วิธีคิดราคา</th></tr></thead>
+        <tbody>
+          <tr><td><code>GP</code></td><td>ระบุราคาตามรายการตรวจ (คิดราคาต่อบริการ)</td></tr>
+          <tr><td><code>LS</code></td><td>ระบุราคาทั้งแพ็กเกจ (ราคาแบบเหมาจ่าย)</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </li>
+    <li>
+      <b>เลือกประเภทกลุ่มผู้รับบริการ</b>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>รหัส</th><th>ประเภท</th></tr></thead>
+        <tbody>
+          <tr><td><code>I</code></td><td>บุคคลทั่วไป</td></tr>
+          <tr><td><code>G</code></td><td>ข้าราชการ</td></tr>
+          <tr><td><code>O</code></td><td>สถานประกอบการ</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </li>
+    <li>
+      <b>ใส่รายการตรวจในแพ็กเกจ</b>
+      <p><code>TbHealthCheckupPackageDetail</code> — แต่ละรายการผูกกับ Station ที่ต้องไป
+         (V/L/X/PE/S) ซึ่งจะกลายเป็นเส้นทางเดินของผู้รับบริการ</p>
+    </li>
+    <li><b>บันทึกและเปิดใช้งาน</b></li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="project">ขั้นที่ 2 — สร้างโครงการตรวจสุขภาพ (เฉพาะรายกลุ่ม)</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ประเภท</th><th>เส้นทาง</th><th>ลักษณะงาน</th></tr></thead>
+    <tbody>
+      <tr><td>เชิงรุก (Proactive)</td><td><code>/health-checkup/activity/proactive</code></td><td>ออกหน่วยไปตรวจที่หน่วยงาน/ชุมชน</td></tr>
+      <tr><td>เชิงรับ (Defensive)</td><td><code>/health-checkup/activity/defensive</code></td><td>ผู้รับบริการเดินทางมาที่โรงพยาบาล</td></tr>
+      <tr><td>รายละเอียดโครงการ</td><td><code>/health-checkup/activity/detail</code></td><td>ดู/แก้ไขรายละเอียด · <code>ActivityDetailComponent</code></td></tr>
+      <tr><td>จัดการโปรไฟล์ผู้รับบริการ</td><td><code>/health-checkup/activity/manage-patient-profile</code></td><td>เพิ่ม/แก้ไขข้อมูลผู้เข้าร่วม</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <ol class="steps steps--blue">
+    <li><b>สร้างโครงการ</b><p><code>TbHealthCheckupActivity</code> — ชื่อโครงการ, บริษัท/หน่วยงาน, วันที่, สถานที่</p></li>
+    <li>
+      <b>เพิ่มรายชื่อผู้เข้าร่วม</b>
+      <p>ทีละคน หรือ <b>นำเข้าจาก Excel</b> — <code>POST /api/Activity/{activityId}/patients-from-excel</code></p>
+    </li>
+    <li><b>ดูรายชื่อในโครงการ</b><p><code>GET /api/Activity/{activityId}/detail</code> (แบ่งหน้า + ค้นหา)</p></li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="order">ขั้นที่ 3 — สั่ง Package</h2>
+
+  <h3>3.1 รายบุคคล</h3>
+  <p><code>/health-checkup/order-package/single</code></p>
+  <ol class="steps">
+    <li>
+      <b>ค้นผู้รับบริการ</b>
+      <p>ถ้าเคยมีประวัติ → <code>/order-package/single/:id</code> (<code>SingleOrderOfPatientComponent</code>)<br>
+         ถ้าเป็นคนใหม่ → <code>/order-package/single/new-patient</code> (<code>SingleOrderOfNewPatientComponent</code>)</p>
+      <p class="small">API: <code>GET /api/Package/single-order-patient?patientId=&amp;serviceId=&amp;serviceDate=</code></p>
+    </li>
+    <li>
+      <b>ตรวจว่ามี Service ของวันนั้นแล้วหรือยัง</b>
+      <p><code>GET /api/Package/check-service-exist?hcPatientId=&amp;serviceDate=</code> — กันสั่งซ้ำ</p>
+    </li>
+    <li>
+      <b>เลือก Package + ปรับรายการ</b>
+      <p>เพิ่ม/ลดรายการตรวจจากแพ็กเกจมาตรฐานได้ · ระบบคำนวณค่าใช้จ่ายให้ (<code>expense-summary-dialog</code>)</p>
+    </li>
+    <li>
+      <b>ยืนยันสั่ง</b>
+      <p><code>POST /api/Package/order-single-package</code> — สร้าง <code>TbHealthCheckupService</code>
+         และ Checklist ของแต่ละ Station</p>
+    </li>
+  </ol>
+
+  <h3>3.2 รายกลุ่ม</h3>
+  <p><code>/health-checkup/order-package/group/list/{proactive|defensive}</code>
+     → <code>/order-package/group/manage-package</code></p>
+  <ol class="steps steps--blue">
+    <li><b>เลือกโครงการ</b><p><code>GET /api/Package/group-order-activity</code></p></li>
+    <li><b>ดูรายชื่อผู้เข้าร่วม</b><p><code>GET /api/Package/group-order-patients/{activityId}</code></p></li>
+    <li>
+      <b>จัดการรายชื่อ</b>
+      <p><code>POST/PUT/DELETE /api/Package/group-order-patients/{activityId}</code>
+         · นำเข้า Excel: <code>POST /api/Package/group-order-patients-from-excel/{activityId}</code></p>
+    </li>
+    <li>
+      <b>สั่ง Package ให้ทั้งกลุ่ม (Mass Order)</b>
+      <p><code>POST /api/Package/mass-order-package</code> —
+         ถ้ามีผู้ที่สิทธิไม่ผ่านจะขึ้น <code>invalid-patients-privilege-dialog</code> ให้ตรวจก่อน</p>
+    </li>
+    <li>
+      <b>ตรวจสอบสถานะการสั่ง</b>
+      <p><code>/health-checkup/order-package/order-status</code> →
+         <code>/order-status/:hcActivityId</code> (<code>OrderPatientStatusComponent</code>)</p>
+    </li>
+  </ol>
+
+  <p class="small">เมนูเชิงรับมีหน้าเฉพาะเพิ่ม: <code>/order-package/group/defensive-order</code>
+     (<code>DefensiveOrderComponent</code>) · การยกเลิก/ลบแพ็กเกจใช้ dialog
+     <code>cancel-package-dialog</code> / <code>delete-package-dialog</code></p>
+
+  <!-- ================================================================== -->
+  <h2 id="appoint">ขั้นที่ 4 — นัดหมาย</h2>
+
+  <p><code>/health-checkup/appointment</code> · เลื่อนนัด <code>/appointment/postpone</code></p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หน้าจอ/ฟังก์ชัน</th><th>API</th></tr></thead>
+    <tbody>
+      <tr><td>ปฏิทินนัดหมาย</td><td><code>GET /api/Appointment/calendar-appoint-inquiry</code></td></tr>
+      <tr><td>ช่วงเวลาที่ว่าง</td><td><code>GET /api/Appointment/patient-appoint-inquiry</code></td></tr>
+      <tr><td>นัดสัปดาห์หน้า</td><td><code>GET /api/Appointment/appointment-next-week-inquiry</code></td></tr>
+      <tr><td>สร้างนัด</td><td><code>POST /api/Appointment/add-appointment</code></td></tr>
+      <tr><td>ประวัตินัด</td><td><code>GET /api/Appointment/appointment-histories-inquiry</code></td></tr>
+      <tr><td>นัดแพทย์ตามความเชี่ยวชาญ/ระยะทาง</td><td><code>GET /api/Appointment/doctor-appointment-in-distance-inquiry</code> · <code>distance-appointment-inquiry</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">มีหน้าย่อยประกอบ: <code>patient-appoint</code>, <code>appointment-room</code>,
+     <code>activity-order</code>, <code>change-mobile</code> (แก้เบอร์เพื่อส่ง SMS/แจ้งเตือน),
+     <code>cancel-appoint</code>, <code>template-order-dialog</code></p>
+
+  <!-- ================================================================== -->
+  <h2 id="checklist">ขั้นที่ 5 — Checklist Station (หัวใจของงานหน้างาน)</h2>
+
+  <p>นี่คือหน้าจอที่เจ้าหน้าที่ประจำแต่ละจุดตรวจใช้จริงในวันตรวจ</p>
+
+  <h3>5.1 เส้นทาง</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>โหมด</th><th>รายชื่อผู้ป่วยที่จุดตรวจ</th><th>หน้าบันทึกรายคน</th></tr></thead>
+    <tbody>
+      <tr><td>รายบุคคล</td><td><code>/checklist/single/:station</code></td>
+          <td><code>/checklist/single/service/:hcServiceId/:station/patient/:hcPatientId</code></td></tr>
+      <tr><td>รายกลุ่ม</td><td><code>/checklist/activity/:type</code> → <code>/checklist/activity/:type/:hcActivityId/:station</code></td>
+          <td><code>/checklist/activity/:hcActivityId/:station/patient/:hcPatientId</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>5.2 ขั้นตอนที่จุดตรวจ</h3>
+  <ol class="steps steps--green">
+    <li>
+      <b>เลือกจุดตรวจของตัวเอง</b>
+      <p>เจ้าหน้าที่เปิดหน้า Station ที่ตนประจำ (เช่น <code>vital-sign</code>)
+         ระบบแสดงเฉพาะผู้ที่ยังไม่ผ่านจุดนี้</p>
+      <p class="small">API: <code>GET /api/Checklist/checklist-activity-detail</code> (กลุ่ม) ·
+         <code>GET /api/Checklist/checklist-individual</code> (เดี่ยว)</p>
+    </li>
+    <li>
+      <b>เรียกผู้รับบริการ</b>
+      <p>ค้นด้วยชื่อ/HN หรือสแกน · ดูสถานะรวมทุกจุดของคนนั้นได้ที่
+         <code>GET /api/Checklist/checklist-patient-status</code></p>
+    </li>
+    <li>
+      <b>บันทึกผลตามจุดตรวจ</b>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>Station</th><th>Component</th><th>API บันทึก</th></tr></thead>
+        <tbody>
+          <tr><td>Vital Sign</td><td><code>checklist-vital-sign</code></td><td><code>POST /api/Checklist/save-patient-vital-sign-station</code></td></tr>
+          <tr><td>Lab</td><td><code>checklist-lab</code></td><td rowspan="3"><code>POST /api/Checklist/save-patient-examine-station</code></td></tr>
+          <tr><td>X-ray</td><td><code>checklist-x-ray</code></td></tr>
+          <tr><td>Service / Order</td><td><code>checklist-order</code></td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="small">อ่านค่าเดิม: <code>GET /api/Checklist/get-patient-vital-sign-station</code> ·
+         <code>GET /api/Checklist/get-patient-examine-station</code></p>
+    </li>
+    <li>
+      <b>อัปเดตสถานะผ่านจุดตรวจ</b>
+      <p><code>POST /api/Checklist/update-patient-check-status</code> →
+         <span class="pill pill--green">Done</span> หรือ <span class="pill pill--red">Cancel</span></p>
+    </li>
+    <li>
+      <b>ส่งต่อไปจุดถัดไป</b>
+      <p>ปุ่ม “เปลี่ยนจุดตรวจ” (<code>checklist-change-station</code> +
+         <code>checklist-change-station-dialog</code>) จะ navigate ไป Station ถัดไปของผู้ป่วยคนเดิม
+         โดยคงบริบท <code>hcActivityId</code>/<code>hcServiceId</code> ไว้</p>
+    </li>
+  </ol>
+
+  <h3>5.3 เอกสารที่พิมพ์ได้จากจุดตรวจ</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เอกสาร</th><th>API</th></tr></thead>
+    <tbody>
+      <tr><td>ใบ Checklist</td><td><code>GET /api/Checklist/print-form-checklist</code></td></tr>
+      <tr><td>ใบแจ้งค่าใช้จ่าย</td><td><code>GET /api/Checklist/print-receipt-detail-report</code></td></tr>
+      <tr><td>ใบขอตรวจ Lab</td><td><code>GET /api/Checklist/print-lab-request</code> · <code>print-lab-request-opd</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <b class="note__label">กรณีผู้ป่วยยังไม่มี Checklist</b>
+    <p><code>POST /api/Checklist/init-patient-not-existed-checklist?activityId=</code>
+       ใช้สร้าง Checklist ให้ผู้เข้าร่วมที่เพิ่มเข้ามาทีหลัง หรือที่ตกหล่นจากการ Mass Order</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="doctor">ขั้นที่ 6 — ห้องตรวจแพทย์ (Physical Examination)</h2>
+
+  <p>เมนู <b>ห้องตรวจแพทย์</b> แยกเป็นรายบุคคลและรายกลุ่ม</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หน้าจอ</th><th>เส้นทาง</th><th>Component</th></tr></thead>
+    <tbody>
+      <tr><td>ห้องตรวจแพทย์รายบุคคล</td><td><code>/health-checkup/doctor-examination/single</code></td><td><code>DashboardComponent</code></td></tr>
+      <tr><td>ห้องตรวจแพทย์รายกลุ่ม</td><td><code>/health-checkup/doctor-examination/group</code></td><td><code>DoctorExaminationActivityTableComponent</code></td></tr>
+      <tr><td>เลือกโครงการ</td><td><code>/doctor-examination/activity/:hcActivityId</code></td><td><code>DashboardComponent</code></td></tr>
+      <tr><td>บันทึกตรวจร่างกาย (เดี่ยว)</td><td><code>/doctor-examination/physical/:hcServiceId/:station/:hcPatientId</code></td><td rowspan="2"><code>PhysicalExaminationComponent</code></td></tr>
+      <tr><td>บันทึกตรวจร่างกาย (กลุ่ม)</td><td><code>/doctor-examination/physical/:hcActivityId/:station/patient/:hcPatientId</code></td></tr>
+      <tr><td>สรุปผล (กลุ่ม)</td><td><code>/doctor-examination/summary/:hcActivityId/:hcPatientId</code></td><td rowspan="2"><code>SummaryComponent</code></td></tr>
+      <tr><td>สรุปผล (เดี่ยว)</td><td><code>/doctor-examination/summary/single/:hcServiceId/:hcPatientId</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <ol class="steps steps--purple">
+    <li>
+      <b>ดู Dashboard ห้องตรวจ</b>
+      <p><code>GET /api/DoctorExamination/examination-patient-by-status</code> —
+         รายชื่อแยกตามสถานะ (รอตรวจ / ตรวจแล้ว)
+         · <code>GET /api/DoctorExamination/result-dashboard-examination</code> สรุปตัวเลข</p>
+    </li>
+    <li>
+      <b>เปิดผู้รับบริการ</b>
+      <p><code>GET /api/DoctorExamination/physical-examination-by-id</code> —
+         โหลดผลจากทุก Station ที่ผ่านมาแล้ว (Vital Sign, Lab, X-ray, ชีวอนามัย)</p>
+    </li>
+    <li>
+      <b>บันทึกการตรวจร่างกาย</b>
+      <p><code>POST /api/DoctorExamination/update-physical-examination</code> —
+         บันทึกผลตรวจร่างกายรายระบบ + การวินิจฉัย (<code>TbHealthCheckupDiag</code>)</p>
+    </li>
+    <li>
+      <b>สรุปผลและคำแนะนำ</b>
+      <p>หน้า <code>SummaryComponent</code> — สรุปภาพรวมสุขภาพ ระบุความผิดปกติที่พบ
+         และคำแนะนำ/การส่งต่อ</p>
+    </li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="import">ขั้นที่ 7 — นำเข้าผลตรวจ (แบบกลุ่ม)</h2>
+
+  <p>สำหรับโครงการรายกลุ่มที่ผลตรวจมาจากภายนอกหรือมาเป็นไฟล์ ระบบให้ import เป็นชุดแล้วค่อยแก้รายคน</p>
+
+  <h3>7.1 ผลตรวจทั่วไป</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ผลตรวจ</th><th>เส้นทาง</th><th>API Import</th><th>API อ่านผล</th></tr></thead>
+    <tbody>
+      <tr><td>Vital Sign</td><td><code>/import-result/vital-sign/:hcActivityId</code></td>
+          <td><code>POST /api/CheckupResult/import-vital-sign/{activityId}</code></td>
+          <td><code>POST …/vital-sign-response/{activityId}</code></td></tr>
+      <tr><td>X-ray</td><td><code>/import-result/x-ray/:hcActivityId</code></td>
+          <td><code>POST /api/CheckupResult/import-xray/{activityId}</code></td>
+          <td><code>POST …/xray-response/{activityId}</code></td></tr>
+      <tr><td>Lab</td><td><code>/import-result/lab/:hcActivityId</code></td>
+          <td>บันทึกรายคน <code>POST …/save-lab-test-result/{activityId}/{patientId}</code></td>
+          <td><code>POST …/lab-response/{activityId}</code><br>ลบ: <code>DELETE …/lab-results/{activityId}</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">มี <code>GET /api/CheckupResult/organ-type-options-of-service</code> สำหรับ dropdown ระบบอวัยวะ
+     และรองรับผล Lab จากห้องแลปภายนอกผ่าน <code>TbOuterLabFile</code> (หน้า <code>outer-lab-result</code>)</p>
+
+  <h3>7.2 ผลตรวจทางชีวอนามัย (Occupational Health)</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ผลตรวจ</th><th>เส้นทาง</th><th>API</th><th>ตาราง</th></tr></thead>
+    <tbody>
+      <tr><td>สมรรถภาพปอด</td><td><code>/import-result/bio-record/lung/:hcActivityId</code></td>
+          <td><code>import-pulmonary-function-test</code> · <code>save…</code> · <code>delete…</code> · <code>…-response</code></td>
+          <td><code>TbHealthCheckupPulmonaryFunctionTest</code></td></tr>
+      <tr><td>สมรรถภาพการได้ยิน</td><td><code>/import-result/bio-record/hearing/:hcActivityId</code></td>
+          <td><code>import-hearing-test</code> · <code>…-response</code></td>
+          <td><code>TbHealthCheckupHearingTest</code></td></tr>
+      <tr><td>สมรรถภาพตา</td><td><code>/import-result/bio-record/visual/:hcActivityId</code></td>
+          <td>—</td><td><code>TbHealthCheckupVisualTest</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">มีตารางเกณฑ์มาตรฐาน <code>TbOccupationalTestStandard</code> และ <code>TbOccupationalHealth</code>
+     ใช้แปลผลเทียบมาตรฐาน</p>
+
+  <!-- ================================================================== -->
+  <h2 id="summary">ขั้นที่ 8 — สรุปผลการตรวจสุขภาพ</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>มุมมอง</th><th>เส้นทาง</th></tr></thead>
+    <tbody>
+      <tr><td>รายบุคคล</td><td><code>/health-checkup/health-checkup-result/single</code></td></tr>
+      <tr><td>รายกลุ่มเชิงรุก</td><td><code>/health-checkup/health-checkup-result/proactive</code></td></tr>
+      <tr><td>รายกลุ่มเชิงรับ</td><td><code>/health-checkup/health-checkup-result/defensive</code></td></tr>
+      <tr><td>รายคนในโครงการ</td><td><code>/health-checkup-result/:type/:hcActivityId</code> → <code>CheckupResultRecordsComponent</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>Component ที่เกี่ยวข้อง: <code>checkup-result-records</code> (บันทึก/แก้ผล) ·
+     <code>checkup-result-template</code> (แม่แบบใบรายงานผล) ·
+     <code>checkup-result-view</code> (มุมมองอ่านผล) ·
+     <code>outer-lab-result</code> (ผลจากแลปภายนอก)</p>
+
+  <h3>รายงาน</h3>
+  <ul>
+    <li>รายงานสรุปผลตรวจสุขภาพ</li>
+    <li>รายงานแสดงจำนวนและร้อยละปัญหาสุขภาพ</li>
+    <li>รายงานสรุปผลตรวจความสมบูรณ์ของเม็ดเลือด / ปัสสาวะ / อุจจาระ / สารเคมีในเลือด</li>
+    <li>รายงานสรุปค่าใช้จ่ายตรวจสุขภาพรายบริษัท</li>
+  </ul>
+
+  <!-- ================================================================== -->
+  <h2 id="portal">ขั้นที่ 9 — Patient Portal (ผู้รับบริการดูผลเอง)</h2>
+
+  <p>อยู่ <b>นอก</b> AppLayout (ไม่มี sidebar ของเจ้าหน้าที่) — root <code>/patient</code></p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หน้าจอ</th><th>เส้นทาง</th><th>Guard</th><th>API</th></tr></thead>
+    <tbody>
+      <tr><td>เข้าสู่ระบบผู้รับบริการ</td><td><code>/patient/login</code></td><td>—</td><td>—</td></tr>
+      <tr><td>รายการครั้งที่มาตรวจ</td><td><code>/patient/visits</code></td><td><code>PatientAuthGuard</code></td><td><code>GET /api/PatientPortal/my-visits</code></td></tr>
+      <tr><td>ผลตรวจของครั้งนั้น</td><td><code>/patient/result/:serviceId</code></td><td><code>PatientAuthGuard</code></td>
+          <td><code>GET …/summary-overview?serviceId=</code><br><code>GET …/summary-detail?serviceId=&amp;type=</code><br>
+              <code>GET …/patient-card?serviceId=</code> · <code>GET …/patient-checkup-info?serviceId=</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="small">Guard แยกจากฝั่งเจ้าหน้าที่ (<code>PatientAuthGuard</code> vs <code>AuthGuard</code>)
+     — ผู้รับบริการมีบัญชีคนละชุดกับเจ้าหน้าที่</p>
+
+  <!-- ================================================================== -->
+  <h2 id="menu">แผนผังเมนู · API</h2>
+
+  <h3>เมนู “งานตรวจสุขภาพ”</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>กลุ่ม</th><th>เมนู</th><th>เส้นทาง</th></tr></thead>
+    <tbody>
+      <tr><td rowspan="3">พื้นฐาน</td><td>หน้าหลัก</td><td><code>/</code></td></tr>
+      <tr><td>เวชระเบียน</td><td><code>/health-checkup/medical-record</code></td></tr>
+      <tr><td>นัดหมาย</td><td><code>/health-checkup/appointment</code></td></tr>
+      <tr><td rowspan="3">ตรวจสุขภาพรายบุคคล</td><td>สั่ง Package รายบุคคล</td><td><code>/order-package/single</code></td></tr>
+      <tr><td>บันทึกข้อมูลรายบุคคล</td><td><code>/checklist/single/vital-sign</code></td></tr>
+      <tr><td>สรุปผลรายบุคคล</td><td><code>/health-checkup-result/single</code></td></tr>
+      <tr><td rowspan="4">ตรวจสุขภาพเชิงรุก</td><td>โครงการเชิงรุก</td><td><code>/activity/proactive</code></td></tr>
+      <tr><td>สั่ง Package รายกลุ่มเชิงรุก</td><td><code>/order-package/group/list/proactive</code></td></tr>
+      <tr><td>บันทึกข้อมูลรายกลุ่มเชิงรุก</td><td><code>/checklist/activity/proactive</code></td></tr>
+      <tr><td>สรุปผลเชิงรุก</td><td><code>/health-checkup-result/proactive</code></td></tr>
+      <tr><td rowspan="4">ตรวจสุขภาพเชิงรับ</td><td>โครงการเชิงรับ</td><td><code>/activity/defensive</code></td></tr>
+      <tr><td>สั่ง Package รายกลุ่มเชิงรับ</td><td><code>/order-package/group/list/defensive</code></td></tr>
+      <tr><td>บันทึกข้อมูลรายกลุ่มเชิงรับ</td><td><code>/checklist/activity/defensive</code></td></tr>
+      <tr><td>สรุปผลเชิงรับ</td><td><code>/health-checkup-result/defensive</code></td></tr>
+      <tr><td>ทั่วไป</td><td>ตรวจสอบสถานะการสั่ง Package</td><td><code>/order-package/order-status</code></td></tr>
+      <tr><td>จัดการ Package</td><td>รายการ Package</td><td><code>/package-list</code></td></tr>
+      <tr><td rowspan="2">ห้องตรวจแพทย์</td><td>รายบุคคล</td><td><code>/doctor-examination/single</code></td></tr>
+      <tr><td>รายกลุ่ม</td><td><code>/doctor-examination/group</code></td></tr>
+      <tr><td rowspan="3">บันทึกผลตรวจสุขภาพ</td><td>นำเข้าผลตรวจร่างกายทั่วไป</td><td><code>/import-result/vital-sign</code></td></tr>
+      <tr><td>นำเข้าผล X-ray</td><td><code>/import-result/x-ray</code></td></tr>
+      <tr><td>นำเข้าผล Lab</td><td><code>/import-result/lab</code></td></tr>
+      <tr><td rowspan="3">ผลตรวจทางชีวอนามัย</td><td>สมรรถภาพปอด</td><td><code>/import-result/bio-record/lung</code></td></tr>
+      <tr><td>สมรรถภาพการได้ยิน</td><td><code>/import-result/bio-record/hearing</code></td></tr>
+      <tr><td>สมรรถภาพตา</td><td><code>/import-result/bio-record/visual</code></td></tr>
+      <tr><td rowspan="3">รหัสหลัก</td><td>รหัสหน่วยงานและบริษัท</td><td><code>/main-code/company-code</code></td></tr>
+      <tr><td>ค่าการแปลผล Vital Sign</td><td><code>/main-code/setting-vital-signs</code></td></tr>
+      <tr><td>กลุ่ม Lab ตรวจสุขภาพ</td><td><code>/main-code/setting-lab</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Controller ฝั่ง Backend</h3>
+  <p><code>ActivityController</code> · <code>PackageController</code> (+ <code>.ManagePackage</code>) ·
+     <code>ChecklistController</code> · <code>DoctorExaminationController</code> ·
+     <code>CheckupResultController</code> (+ <code>.Summary</code>) · <code>VitalSignsController</code> ·
+     <code>VitalSignsSettingController</code> · <code>LabController</code> · <code>XRayController</code> ·
+     <code>AppointmentController</code> · <code>PatientController</code> · <code>PatientPortalController</code> ·
+     <code>MainCodeController</code> · <code>MasterDataController</code> · <code>ExpenseController</code> ·
+     <code>PrivilegeController</code> · <code>ReportController</code> · <code>OpdClinicController</code> ·
+     <code>OrderController</code> · <code>FormController</code> · <code>AdminController</code> ·
+     <code>UserController</code> · <code>AccountController</code></p>
+
+  <h3>ตารางฐานข้อมูลหลัก</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ตาราง</th><th>เก็บอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><code>TbHealthCheckupPatient</code> (+ <code>Address</code>, <code>Pictures</code>, <code>Right</code>)</td><td>ผู้รับบริการตรวจสุขภาพ</td></tr>
+      <tr><td><code>TbHealthCheckupActivity</code></td><td>โครงการตรวจสุขภาพ (เชิงรุก/เชิงรับ)</td></tr>
+      <tr><td><code>TbHealthCheckupService</code></td><td>ครั้งที่มารับบริการ (1 คน 1 ครั้ง)</td></tr>
+      <tr><td><code>TbHealthCheckupPackage</code> · <code>…PackageDetail</code></td><td>แพ็กเกจและรายการตรวจ</td></tr>
+      <tr><td><code>TbHealthCheckupChecklistStation</code></td><td>สถานะการผ่านแต่ละจุดตรวจ</td></tr>
+      <tr><td><code>TbHealthCheckupPatientAction</code></td><td>ประวัติการกระทำของผู้รับบริการ</td></tr>
+      <tr><td><code>TbVitalSigns</code> · <code>TbVitalSignsSetting</code></td><td>ผลและเกณฑ์แปลผล Vital Sign</td></tr>
+      <tr><td><code>TbLab</code> · <code>TbXRay</code> · <code>TbOuterLabFile</code></td><td>ผล Lab / X-ray / ไฟล์แลปนอก</td></tr>
+      <tr><td><code>TbHealthCheckupPulmonaryFunctionTest</code> · <code>…HearingTest</code> · <code>…VisualTest</code></td><td>ผลตรวจชีวอนามัย</td></tr>
+      <tr><td><code>TbOccupationalHealth</code> · <code>TbOccupationalTestStandard</code></td><td>ข้อมูล/เกณฑ์อาชีวอนามัย</td></tr>
+      <tr><td><code>TbHealthCheckupDiag</code></td><td>การวินิจฉัยจากห้องตรวจแพทย์</td></tr>
+      <tr><td><code>TbHealthCheckupAppointment</code></td><td>นัดหมาย</td></tr>
+      <tr><td><code>TbCompany</code></td><td>หน่วยงาน/บริษัทเจ้าของโครงการ</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="pitfall">ข้อควรระวัง</h2>
+
+  <div class="grid grid--2">
+    <div class="card">
+      <h4>1. Station ต้องถูกกำหนดตั้งแต่ตอนทำ Package</h4>
+      <p>ถ้ารายการตรวจไม่ผูก Station ผู้รับบริการจะไม่ปรากฏที่จุดตรวจนั้น</p>
+    </div>
+    <div class="card">
+      <h4>2. Lab Mapping ไม่ครบ = ผลไม่ขึ้น</h4>
+      <p>ต้อง map รหัส Lab ของ HA.OS เข้ากลุ่ม Lab ตรวจสุขภาพก่อน มิฉะนั้นผลที่ import มาจะจับคู่ไม่ได้</p>
+    </div>
+    <div class="card">
+      <h4>3. เกณฑ์ Vital Sign ไม่ตั้ง = แปลผลไม่ได้</h4>
+      <p>ค่าจะขึ้นเป็น <span class="pill pill--gray">pending</span> ทั้งหมด
+         ต้องตั้งที่เมนู “กำหนดค่าการแปลผล Vital Sign” ก่อน</p>
+    </div>
+    <div class="card">
+      <h4>4. สั่ง Package ซ้ำในวันเดียวกัน</h4>
+      <p>ใช้ <code>check-service-exist</code> ตรวจก่อนเสมอ — ระบบสร้าง Service ซ้ำได้ถ้าข้ามขั้นนี้</p>
+    </div>
+    <div class="card">
+      <h4>5. ผู้เข้าร่วมที่เพิ่มทีหลัง</h4>
+      <p>คนที่เพิ่มเข้าโครงการหลัง Mass Order จะไม่มี Checklist —
+         ใช้ <code>init-patient-not-existed-checklist</code> สร้างให้</p>
+    </div>
+    <div class="card">
+      <h4>6. Import Excel ต้องตรง template</h4>
+      <p>ทั้งรายชื่อผู้เข้าร่วมและผลตรวจ ควรดาวน์โหลด template จากระบบและไม่แก้หัวคอลัมน์</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><a href="08-smartipd-pharmacist-tech.html">← 08 Smart IPD Pharmacist</a></span>
+    <span><a href="index.html">กลับหน้าแรก</a></span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

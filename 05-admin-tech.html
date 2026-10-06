@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>05 · งานผู้ดูแลระบบ (IT Admin) — HA.OS Module Flow</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="m5">
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <p class="crumb"><a href="index.html">หน้าแรก</a> › HA.OS หลัก › 05 งานผู้ดูแลระบบ</p>
+
+  <div class="page-head">
+    <h1>05 · งานผู้ดูแลระบบ (IT Admin)</h1>
+    <p>เมนู 24 เป็นศูนย์กลางการตั้งค่าทั้งระบบ — ผู้ใช้และสิทธิ, พารามิเตอร์ระดับโรงพยาบาลที่เปิด/ปิดฟีเจอร์ทั้งโมดูล,
+       รหัสหลักที่โมดูลอื่นทั้งหมดอ้างอิง, Token สำหรับเชื่อมระบบภายนอก, เลขที่เอกสาร และเครื่องมือตรวจสอบ/แก้ปัญหา
+       การตั้งค่าผิดที่นี่จะส่งผลไปทุกโมดูลทันที</p>
+  </div>
+
+  <div class="toc">
+    <b>หัวข้อในหน้านี้</b>
+    <ol>
+      <li><a href="#user">1. ผู้ใช้งาน · Role · สิทธิ</a></li>
+      <li><a href="#token">2. Personal Access Token</a></li>
+      <li><a href="#param">3. กำหนด Parameter</a></li>
+      <li><a href="#place">4. สถานที่ · เตียง · สิทธิการรักษา</a></li>
+      <li><a href="#claim">5. การเรียกเก็บพิเศษ</a></li>
+      <li><a href="#nhso">6. Token สปสช. / NHSO</a></li>
+      <li><a href="#master">7. รหัสหลัก</a></li>
+      <li><a href="#running">8. กำหนดลำดับเลขที่</a></li>
+      <li><a href="#favorite">9. รายการที่ใช้ประจำ</a></li>
+      <li><a href="#tools">10. เครื่องมือตรวจสอบ</a></li>
+      <li><a href="#menu">เมนู · API</a></li>
+      <li><a href="#pitfall">ข้อควรระวัง</a></li>
+    </ol>
+  </div>
+
+  <div class="roles">
+    <span class="role"><b>สิทธิ:</b> <code>IT_ADMIN</code> (ทุกเมนูในโมดูลนี้)</span>
+    <span class="role"><b>Root:</b> <code>/admin</code></span>
+    <span class="role"><b>Controller:</b> <code>AdminController</code></span>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="user">1. ผู้ใช้งาน · Role · สิทธิ</h2>
+
+  <p>HA.OS ใช้โมเดลสิทธิ 3 ชั้น</p>
+
+  <ul class="flow">
+    <li><b>Role</b><span>ชุดสิทธิสำเร็จรูป</span></li>
+    <li><b>User</b><span>ผูก Role + สิทธิเฉพาะตัว</span></li>
+    <li><b>Permission Code</b><span>ตัวคุมเมนู/ปุ่ม</span></li>
+  </ul>
+
+  <h3>1.1 กำหนด Role</h3>
+  <p><code>/admin/role-manage</code> · API <code>GET /api/Admin/GetRoleById</code> · <code>POST /api/Admin/AddOrUpdateRole</code></p>
+  <ol class="steps">
+    <li><b>สร้าง Role ใหม่</b><p>ตั้งชื่อ Role ตามหน้าที่งาน เช่น “เจ้าหน้าที่การเงิน OPD”, “เภสัชกร IPD”</p></li>
+    <li><b>ติ๊กสิทธิที่ Role นี้ได้รับ</b>
+      <p>สิทธิเป็นรหัสข้อความ (Permission Code) ที่หน้าจอฝั่ง Angular เอาไปเทียบใน
+         <code>menu.config.ts</code> (คุมการเห็นเมนู) และในแต่ละ component (คุมการเห็นปุ่ม)</p>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>กลุ่ม</th><th>ตัวอย่าง Permission Code</th></tr></thead>
+        <tbody>
+          <tr><td>ผู้ดูแลระบบ</td><td><code>IT_ADMIN</code>, <code>IT_ADMIN_SYSTEM_ERROR_DASHBOARD</code>, <code>IT_ADMIN_CHECK_DATADICTIONARY</code></td></tr>
+          <tr><td>การเงินนอก</td><td><code>OUTPATIENT_FINANCE</code>, <code>OUTPATIENT_FINANCE_DASHBOARD</code>, <code>OUTPATIENT_FINANCE_OPD_BILLING</code>, <code>OUTPATIENT_FINANCE_CHECK_CANCEL_BILL</code></td></tr>
+          <tr><td>การเงินใน</td><td><code>INPATIENT_FINANCE</code>, <code>INPATIENT_FINANCE_LOGIN</code>, <code>INPATIENT_FINANCE_IPD_EXPENSE_SUMMARY</code></td></tr>
+          <tr><td>เรียกเก็บ</td><td><code>REIMBURSEMENT</code>, <code>REIMBURSEMENT_DASHBOARD</code>, <code>REIMBURSEMENT_REIMBURSE_ROUND</code>, <code>REIMBURSEMENT_REIMBURSE_PAYMENT</code></td></tr>
+          <tr><td>ห้องปฏิบัติการ</td><td><code>LABORATORY</code>, <code>LABORATORY_MASTER_DATA</code></td></tr>
+          <tr><td>อื่น ๆ</td><td><code>DOCTOR_CLINIC</code>, <code>APPOINTMENT_APPOINT</code>, <code>OPD_CLINIC</code>, <code>REFER_CENTER</code></td></tr>
+        </tbody>
+      </table>
+      </div>
+    </li>
+    <li><b>บันทึก</b><p>ผู้ใช้ที่ผูก Role นี้อยู่จะได้รับสิทธิใหม่หลัง <b>login ใหม่</b></p></li>
+  </ol>
+
+  <h3>1.2 ลงทะเบียนผู้ใช้งานระบบ</h3>
+  <p><code>/admin/user-management</code> → <code>/admin/user-create</code> (หรือ <code>/admin/user-create/:id/:EditMode</code>)</p>
+  <ol class="steps steps--blue">
+    <li>
+      <b>กรอกข้อมูลบุคคล</b>
+      <p>คำนำหน้า, ชื่อ-สกุล (ไทย/อังกฤษ), แผนก (<code>TBM_DEPARTMENTS</code>),
+         ประเภทผู้ให้บริการ (<code>TBM_PROVIDERTYPES</code>), เลขที่ใบประกอบวิชาชีพ, ธนาคาร/เลขบัญชี</p>
+    </li>
+    <li>
+      <b>กำหนด User Type</b>
+      <p>สำคัญมากเพราะระบบอื่นใช้ค่านี้ตัดสินบทบาท</p>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>UserType</th><th>ความหมาย</th><th>บทบาทใน Smart IPD</th></tr></thead>
+        <tbody>
+          <tr><td><code>M</code></td><td>แพทย์</td><td rowspan="3">Doctor</td></tr>
+          <tr><td><code>D</code></td><td>ทันตแพทย์</td></tr>
+          <tr><td><code>E</code></td><td>แพทย์ภายนอก</td></tr>
+          <tr><td><code>N</code></td><td>พยาบาล</td><td>Nurse</td></tr>
+          <tr><td><code>P</code></td><td>เภสัชกร</td><td>Pharmacist</td></tr>
+          <tr><td>อื่น ๆ</td><td>เจ้าหน้าที่ทั่วไป</td><td>User</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="small">อ้างอิง <code>UserTypeMapper.MapHaosUserTypeToRole()</code> ใน Smart IPD —
+         ตั้ง UserType ผิด ผู้ใช้จะเข้าโมดูลผิดใน Smart IPD (ดู <a href="06-smartipd-doctor-tech.html">โมดูล 05-07</a>)</p>
+    </li>
+    <li><b>ตั้ง Username / Password</b><p>เงื่อนไขความยาวและวันหมดอายุมาจาก Parameter <code>MinPassword</code> / <code>PasswordExpire</code></p></li>
+    <li><b>ผูก Role</b><p>เลือกจาก Role ที่สร้างไว้</p></li>
+    <li><b>กำหนดสถานที่ทำงานที่เข้าถึงได้</b><p>ผูก WorkPlace ที่ผู้ใช้เข้าใช้งานได้ (ใช้กับหน้าจอที่มี WorkGuard)</p></li>
+  </ol>
+
+  <h3>1.3 กำหนดสิทธิการใช้งานรายบุคคล</h3>
+  <p><code>/admin/user-rights</code> · <code>/admin/user-rights/:id</code> —
+     ปรับสิทธิเฉพาะรายบุคคลเพิ่มเติมจาก Role (กรณีข้อยกเว้น)</p>
+
+  <div class="note note--tip">
+    <b class="note__label">แนวทางที่แนะนำ</b>
+    <p>ให้ใช้ <b>Role</b> เป็นหลัก และใช้สิทธิรายบุคคลเฉพาะกรณียกเว้นจริง ๆ
+       เพราะสิทธิรายบุคคลกระจัดกระจายและตรวจสอบย้อนหลังยาก</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="token">2. Personal Access Token (สำหรับระบบภายนอก)</h2>
+
+  <p>เป็นกลไกที่ระบบภายนอก (BBIS/LIS, Kiosk-TV, Robot, ระบบ Partner) ใช้เรียก API ของ HA.OS
+     โดยไม่ต้อง login ด้วย username/password — ส่งผ่าน HTTP header <code>PersonalToken</code></p>
+
+  <h3>วิธีสร้าง</h3>
+  <ol class="steps steps--green">
+    <li><b>เข้าหน้าแก้ไขผู้ใช้</b><p><code>/admin/user-create/:id/:EditMode</code> เลื่อนไปส่วน Personal Access Token</p></li>
+    <li><b>กรอกชื่อ Token + วันหมดอายุ</b><p>ชื่อเป็นเพียงคำอธิบาย · เว้นวันหมดอายุว่าง = ไม่หมดอายุ</p></li>
+    <li>
+      <b>กดสร้าง</b>
+      <p><code>POST /api/Admin/CreatePersonalAccessToken</code> — ระบบสร้าง GUID แบบ <code>"N"</code>
+         (32 ตัวอักษร ไม่มีขีด) คืนมาเป็น plain text <b>ครั้งเดียว</b> ผ่าน dialog
+         และเก็บเฉพาะค่า hash ลง <code>TB_PERSONAL_ACCESS_TOKENS.ACCESS_TOKEN</code></p>
+    </li>
+    <li><b>คัดลอกไปตั้งค่าที่ระบบภายนอก</b></li>
+  </ol>
+
+  <h3>การจัดการ Token</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>การกระทำ</th><th>API</th><th>ผล</th></tr></thead>
+    <tbody>
+      <tr><td>ดูรายการ</td><td><code>GET /api/Admin/GetPersonalAccessTokenByUserIdList</code></td><td>แสดงชื่อ, วันที่สร้าง, วันหมดอายุ (<b>ไม่แสดงค่า token</b>)</td></tr>
+      <tr><td>แก้ไข</td><td><code>POST /api/Admin/UpdatePersonalAccessToken</code></td><td>เปลี่ยนชื่อ/วันหมดอายุ (ค่า token เดิมยังใช้ได้)</td></tr>
+      <tr><td>Revoke</td><td><code>POST /api/Admin/RevokePersonalAccessToken</code></td><td>ออกค่าใหม่ ค่าเดิมใช้ไม่ได้ทันที — dialog แสดงค่าใหม่</td></tr>
+      <tr><td>ลบ</td><td><code>POST /api/Admin/DeletePersonalAccessToken</code></td><td>ลบถาวร</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>พฤติกรรมการตรวจสอบ (<code>CustomApiServiceAuthorizeAttribute</code>)</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>สถานการณ์</th><th>HTTP Status</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td>Token ถูกต้อง + ยังไม่หมดอายุ</td><td>200</td><td>ผ่าน — ระบบตั้ง <code>CredentialPrincipal</code> เป็น user เจ้าของ token</td></tr>
+      <tr><td>ไม่ส่ง header / token ไม่ตรง / หมดอายุ</td><td><b>401</b></td><td>ปฏิเสธ</td></tr>
+      <tr><td>ตรวจสอบล้มเหลว (DB ล่ม, timeout)</td><td><b>500</b></td><td>ปัญหาฝั่ง server — <b>ไม่ใช่</b> token หมดอายุ ให้ client retry</td></tr>
+      <tr><td>Endpoint ที่มี <code>[AllowAnonymous]</code></td><td>200</td><td>ข้ามการตรวจ</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <b class="note__label">ทำไม 500 ไม่ใช่ 401</b>
+    <p>โค้ดจงใจแยกสองกรณีนี้ เพราะเดิมทีการคืน 401 ตอน DB มีปัญหาชั่วคราว ทำให้ Kiosk-TV
+       ลบ token ที่เก็บไว้ทิ้งและต้องไปกรอกใหม่ที่เครื่อง การคืน 500 ทำให้ client retry แทน</p>
+    <p class="small">Token ถูกบันทึกลง log แบบ mask (แสดงเฉพาะ 4 ตัวท้าย) เท่านั้น</p>
+  </div>
+
+  <div class="note note--tip">
+    <b class="note__label">แนวปฏิบัติ</b>
+    <p>สร้าง <b>service account แยกต่อระบบภายนอกแต่ละตัว</b> (เช่น <code>svc_bbis</code>, <code>svc_kiosk</code>)
+       เพราะทุกข้อมูลที่ระบบภายนอกสร้าง จะบันทึก <code>UserCreated</code> เป็นเจ้าของ token
+       — ทำให้ตรวจสอบย้อนหลังได้ว่ารายการไหนมาจากระบบใด และ revoke ได้แยกกัน</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="param">3. กำหนด Parameter (พารามิเตอร์ระดับโรงพยาบาล)</h2>
+
+  <p><code>/admin/hosp-parameter</code> · <code>GET /api/Admin/GetParameterData</code> ·
+     <code>POST /api/Admin/ManageParameterData</code> · ตาราง <code>TBM_HOSP_PARAMETERS</code> (1 แถวเท่านั้น)</p>
+
+  <p>หน้าจอเดียวนี้คุมพฤติกรรมของทั้งระบบ แบ่งเป็นกลุ่มดังนี้</p>
+
+  <h3>3.1 ข้อมูลโรงพยาบาล</h3>
+  <p><code>HospCode</code>, <code>HospName</code>, <code>EName</code>, <code>InitialName</code>, ที่อยู่เต็ม,
+     <code>Latitude</code>/<code>Longitude</code>, <code>SssCode</code>, <code>Careas</code>, เบอร์โทร/Fax/Email/Line/Website,
+     <code>LogoFilename</code>, <code>UrlQrcode</code>, <code>BankAccount</code></p>
+  <p class="small">ข้อมูลชุดนี้ขึ้นบนหัวรายงานและใบเสร็จทุกใบ</p>
+
+  <h3>3.2 ผู้บริหารที่ลงนาม</h3>
+  <p><code>Hd*</code> (ผู้อำนวยการ), <code>Dhd1*</code>, <code>Dhd2*</code> (รอง 2 คน) —
+     ชื่อไทย/อังกฤษ, ตำแหน่ง, และ <code>UserId</code> ที่ผูกเพื่อดึงลายเซ็นดิจิทัล</p>
+
+  <h3>3.3 Flag เปิด/ปิดโมดูล (สำคัญที่สุด)</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Parameter</th><th>ผลเมื่อเปิด</th></tr></thead>
+    <tbody>
+      <tr><td><code>IsBloodBankEnabled</code></td><td>เปิดโมดูลธนาคารเลือด — เริ่มสร้าง <code>TB_BBIS_ORDER_CONFIRM</code> จาก Lab กลุ่ม 01 (<a href="01-blood-bank-tech.html">โมดูล 01</a>)</td></tr>
+      <tr><td><code>IsDrugCenterEnabled</code></td><td>เปิดโมดูลศูนย์ยา</td></tr>
+      <tr><td><code>IsRobotDispense</code></td><td>เปิดการส่งใบสั่งยาไปหุ่นยนต์จัดยา</td></tr>
+      <tr><td><code>AutoTransferPHR</code></td><td>ส่งข้อมูลสุขภาพเข้า PHR อัตโนมัติ</td></tr>
+      <tr><td><code>AutoSendVisitToFdh</code></td><td>ส่ง Visit เข้า FDH Data Hub อัตโนมัติ</td></tr>
+      <tr><td><code>DocOnlineFlag</code></td><td>เปิดใช้เอกสารออนไลน์</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>3.4 อัตโนมัติด้านการเงิน / งานผู้ป่วยใน</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Parameter</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td><code>AutoRoomPrice</code> + <code>AutoRoomPriceTime</code></td><td>ลงค่าห้องอัตโนมัติ และเวลาที่ตัดรอบ</td></tr>
+      <tr><td><code>AutoRoomDiscount</code></td><td>ให้ส่วนลดค่าห้องอัตโนมัติ</td></tr>
+      <tr><td><code>AutoServiceCharge</code></td><td>ลงค่าบริการอัตโนมัติ</td></tr>
+      <tr><td><code>AutoGenIpdDrug</code> + <code>AutoGenIpdDrugTime</code></td><td>สร้างรายการยาผู้ป่วยในอัตโนมัติ + เวลา</td></tr>
+      <tr><td><code>Bedrate</code></td><td>อัตราค่าเตียงมาตรฐาน</td></tr>
+      <tr><td><code>VatPercentage</code></td><td>อัตรา VAT</td></tr>
+      <tr><td><code>AdmitAutoOpdTransfer</code></td><td>โอนค่าใช้จ่าย OPD เข้า Admit อัตโนมัติเมื่อรับ Admit</td></tr>
+      <tr><td><code>AutoFindBetterRightOrder</code></td><td>ค้นหาสิทธิที่ให้ประโยชน์สูงสุดให้อัตโนมัติ</td></tr>
+      <tr><td><code>LockAdmitRight</code></td><td>ล็อกไม่ให้แก้สิทธิหลัง Admit</td></tr>
+      <tr><td><code>PopupManyRightFlag</code> / <code>NotEditRightFlag</code></td><td>เตือนเมื่อมีหลายสิทธิ / ห้ามแก้สิทธิ</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>3.5 Lab / X-Ray / PACS</h3>
+  <p><code>CentralLab</code>, <code>LockAcceptLab</code>, <code>CentralXray</code>, <code>LockAcceptXray</code>,
+     <code>XrayLabLockFlag</code>, <code>PacsInterface</code>, <code>PacsUrl</code>, และ <code>LabMonitors[]</code>
+     (รายการ Lab ที่ต้องเฝ้าติดตาม)</p>
+  <p class="small">มีคอลัมน์ <code>BbReqPath</code> สำหรับ path ไฟล์ ASTM ของธนาคารเลือดแบบเดิมด้วย</p>
+
+  <h3>3.6 การพิมพ์ฉลาก</h3>
+  <p><code>AutoPrintOlabel1..4</code>, <code>AutoCopyOlabel3</code> (OPD) และ
+     <code>AutoPrintIlabel1..2</code>, <code>AutoCopyIlabel2</code> (IPD), <code>AutoPrintService</code>
+     — และตรวจข้อยกเว้นรายจุดด้วย <code>GET /api/Admin/CheckWorkPlaceDisabledAutoPrint?workId=</code></p>
+
+  <h3>3.7 ความปลอดภัย / บัญชีเชื่อมต่อ</h3>
+  <p><code>PasswordExpire</code>, <code>MinPassword</code>, และบัญชีสำหรับระบบภายนอก
+     (<code>MophClaimUserName</code>, <code>PHRUserName</code>, <code>NAPPLUSUserName</code> พร้อมรหัสผ่าน)</p>
+
+  <div class="note note--warn">
+    <b class="note__label">ระวัง</b>
+    <p>รหัสผ่านของระบบภายนอกถูกเก็บใน parameter table และปรากฏใน API response ของหน้านี้
+       จึงควรจำกัดสิทธิ <code>IT_ADMIN</code> ให้แคบที่สุด</p>
+  </div>
+
+  <h3>3.8 อื่น ๆ</h3>
+  <p><code>AdvanceVisit</code> + <code>AdvanceVisitDay</code> (เปิด Visit ล่วงหน้า),
+     <code>OverRuleRepeatDrug</code> + <code>OverRuleRepeatDrugDay</code> (ยาซ้ำ),
+     <code>LockDiag</code> / <code>LockDiagIcd</code> / <code>LockDiagPdx</code> (ล็อกการวินิจฉัย),
+     <code>NewBornPrefix</code> (รหัสนำหน้าทารกแรกเกิด), <code>ClearPatientFlag</code>,
+     <code>ViewscanOpd</code> / <code>ViewscanIpd</code>, <code>VersionControl</code></p>
+
+  <!-- ================================================================== -->
+  <h2 id="place">4. สถานที่ · เตียง · สิทธิการรักษา</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมนู</th><th>เส้นทาง</th><th>ใช้ทำอะไร · โมดูลที่พึ่งพา</th></tr></thead>
+    <tbody>
+      <tr><td>กำหนดรหัสสถานที่ใน รพ.</td><td><code>/admin/hosp-workplace</code></td>
+          <td>สร้าง WorkPlace (จุดบริการ/คลินิก/Ward/จุดเก็บเงิน) — ทุกโมดูลอ้าง <code>WorkId</code> เป็น <code>FROM_WORK</code></td></tr>
+      <tr><td>กำหนดเตียงในโรงพยาบาล</td><td><code>/admin/hosp-bed</code></td>
+          <td>เตียง + กลุ่มเตียง + อัตราค่าห้อง — ใช้ในงานผู้ป่วยใน &amp; ค่าห้องอัตโนมัติ · <code>GET /api/Admin/DashboardBed</code></td></tr>
+      <tr><td>กำหนดสิทธิการรักษา</td><td><code>/admin/hosp-right</code></td>
+          <td>สิทธิ + อัตราเบิกได้/เบิกไม่ได้ — เป็นตัวกำหนดยอด <code>CREDIT/CASH_RETURN/CASH_NOT_RETURN</code> ทุกรายการ
+              · <code>GET DashboardRight</code>, <code>POST AddOrUpddateRight</code></td></tr>
+      <tr><td>ประเภทสิทธิย่อย/สิทธิที่ใช้เบิก</td><td><code>/admin/hosp-nhso-inscl</code></td>
+          <td>Map สิทธิภายในกับรหัส INSCL ของ สปสช. · <code>GET NhsoInsclList</code>, <code>POST AddOrUpddateNhsoInscl</code></td></tr>
+      <tr><td>กำหนดประเภทผู้ป่วย</td><td><code>/admin/hosp-patient-type</code></td><td>ประเภทผู้ป่วยที่ใช้แยกอัตรา/รายงาน</td></tr>
+      <tr><td>กำหนดรหัสกลุ่มการเงินที่ใช้ออกบิล</td><td><code>/admin/hosp-bill</code></td>
+          <td>Bill Group — ตัวจัดกลุ่มบรรทัดในใบเสร็จ/ใบเรียกเก็บ</td></tr>
+      <tr><td>กำหนดรหัสโรค / หัตถการ</td><td><code>/admin/hosp-icd</code></td><td>ICD-10 / ICD-9-CM</td></tr>
+      <tr><td>รหัสบัญชี</td><td><code>/admin/accounting-list</code></td><td>ผังบัญชีที่ใช้ผูกกับรายการค่าใช้จ่าย (รายงานลูกหนี้แยกผังบัญชี)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="claim">5. กำหนดการเรียกเก็บพิเศษ (Special Claim)</h2>
+
+  <p><code>/admin/hosp-special-claim</code> — ตั้งเงื่อนไขให้ระบบคิด/โอนค่าใช้จ่ายพิเศษตามสิทธิ</p>
+
+  <h3>5.1 กำหนดค่าใช้จ่ายตามสิทธิ</h3>
+  <p><code>/admin/hosp-special-claim/expenses-list</code></p>
+  <ul>
+    <li><code>GET /api/Admin/GetSpecialClaimExpenseList</code> · <code>GetSpecialClaimExpenseByRightId</code></li>
+    <li><code>POST /api/Admin/CreateOrUpdateSpecialClaimExpense</code></li>
+    <li>นำเข้าเป็นชุด: <code>GET DownloadTemplateSpecialClaimExpense</code> → กรอก Excel →
+        <code>POST ImportSpecialClaimExpenses</code></li>
+  </ul>
+
+  <h3>5.2 กำหนด ICD ตามสิทธิ</h3>
+  <p><code>/admin/hosp-special-claim/icds-list</code></p>
+  <ul>
+    <li><code>GET GetSpecialClaimIcdList</code> · <code>GetSpecialClaimIcdByRightId</code></li>
+    <li><code>POST CreateOrUpdateSpecialClaimIcd</code></li>
+    <li>นำเข้า Excel: <code>GET DownloadTemplateSpecialClaimIcd</code> → <code>POST ImportSpecialClaimIcds</code></li>
+  </ul>
+
+  <div class="note">
+    <b class="note__label">เชื่อมกับ Batch</b>
+    <p>เงื่อนไข ICD ที่ตั้งไว้ที่นี่ถูกใช้โดย Job <code>TransferFinanceBySpecialClaimIcdJob</code> (รันทุกวัน 20:00)
+       เพื่อโอนค่าใช้จ่ายไปยังสิทธิ/หมวดที่ถูกต้องอัตโนมัติ</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="nhso">6. ตั้งค่า Token ตรวจสอบสิทธิ สปสช.</h2>
+
+  <p><code>/admin/hosp-nhso-token</code> · Controller <code>NhsoTokenAdminController</code></p>
+
+  <ol class="steps">
+    <li><b>ดูสถานะ Token ปัจจุบัน</b><p><code>GET .../GetStatus</code> — ตรวจว่า token ยังใช้ได้ / ใกล้หมดอายุหรือยัง</p></li>
+    <li><b>ป้อน Token ใหม่</b><p><code>POST .../SeedToken</code> — วางค่า token ที่ได้จาก สปสช.</p></li>
+    <li><b>หรืออัปโหลดไฟล์ Token</b><p><code>POST .../UploadTokenFile</code></p></li>
+  </ol>
+  <p class="small">เก็บที่ตาราง <code>TB_NHSO_ACCESS_TOKEN</code> (migration <code>25690715142658_AddTbNhsoAccessToken</code>)</p>
+
+  <div class="note note--warn">
+    <b class="note__label">เป็นสาเหตุยอดฮิตของ “ตรวจสิทธิไม่ได้”</b>
+    <p>Token สปสช. มีอายุจำกัด เมื่อหมดอายุ หน้าตรวจสอบสิทธิและ pipeline ส่งเบิกจะล้มเหลวพร้อมกัน
+       ควรตรวจหน้านี้เป็นงานประจำ</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="master">7. รหัสหลัก (Master Code)</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมนู</th><th>เส้นทาง</th><th>ตาราง</th><th>ใครใช้</th></tr></thead>
+    <tbody>
+      <tr><td>รหัสยาเวชภัณฑ์</td><td><code>/admin/hosp-drug-registration</code></td><td><code>TBM_DRUGS</code> ฯลฯ</td><td>ห้องยา, คลัง, Smart IPD</td></tr>
+      <tr><td>รหัสค่าใช้จ่าย</td><td><code>/admin/hosp-expense-registration</code></td><td><code>TBM_EXPENSES</code></td><td>ทุกโมดูลที่ลงค่าใช้จ่าย</td></tr>
+      <tr><td>รหัส Lab</td><td><code>/admin/hosp-lab-registration</code></td><td><code>TBM_LAB_TESTS</code>, <code>TBM_LAB_GROUPS</code></td><td>ห้องแลป, ธนาคารเลือด</td></tr>
+      <tr><td>รหัส X-Ray</td><td><code>/admin/hosp-xray-registration</code></td><td><code>TBM_XRAY_*</code></td><td>ห้องเอกซเรย์</td></tr>
+      <tr><td>รหัสหลักรวม</td><td><code>/code/all-module</code></td><td>หลายตาราง</td><td>ทุกโมดูล</td></tr>
+      <tr><td>ระบบรายงาน</td><td><code>/report/all-report</code></td><td>—</td><td>ทุกโมดูล</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--tip">
+    <b class="note__label">ฟิลด์ที่มักถูกลืมใน <code>TBM_EXPENSES</code></b>
+    <ul>
+      <li><code>LABGROUP</code> — <code>'01'</code> = เข้าโมดูลธนาคารเลือด</li>
+      <li><code>LAB_MEANING</code> — <code>BB</code> / <code>M</code> (MLab) / <code>O</code> (OutLab) / <code>AL</code> (ALLABIS) กำหนดปลายทาง LIS</li>
+      <li><code>FINANCE_TYPE</code>, <code>BILLGROUP</code>, <code>ACTGROUP</code>, <code>ACCGROUP</code> — คุมการจัดกลุ่มในบิลและบัญชี</li>
+      <li><code>LISCODE</code> — รหัสที่ส่งออกไปยัง LIS</li>
+      <li><code>ML_VOLUME</code> — ปริมาตร (ใช้ในธนาคารเลือด)</li>
+    </ul>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="running">8. กำหนดลำดับเลขที่ (Running Number)</h2>
+
+  <p><code>/admin/running-number</code> · <code>GET /api/Admin/GetRunningNoList</code> ·
+     <code>GET /api/Admin/GetLastRunningNo</code> · ตาราง <code>TBM_RUNNING_NO</code></p>
+
+  <ul>
+    <li>กำหนดเล่ม (<code>BookNo</code>) และช่วงเลข (<code>RunNo</code>) ของเอกสารแต่ละประเภท —
+        ใบเสร็จ, ใบเรียกเก็บ, HN, AN, VN ฯลฯ</li>
+    <li>ระบบดึงเลขถัดไปผ่าน <code>SequenceHelper.GetSequenceNumber(cSequenceType.…)</code>
+        เช่น <code>SeqGenerateFinanceOrderId</code>, <code>SeqGenerateFinanceAccessionNo</code></li>
+  </ul>
+
+  <div class="note note--danger">
+    <b class="note__label">เล่มหมด = ออกใบเสร็จไม่ได้</b>
+    <p>ต้องเพิ่มเล่มใหม่ล่วงหน้าก่อนเลขในเล่มปัจจุบันจะหมด มิฉะนั้นงานการเงินจะหยุดทันที</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="favorite">9. รายการที่ใช้ประจำ &amp; Template</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมนู</th><th>เส้นทาง</th><th>ใช้ที่ไหน</th></tr></thead>
+    <tbody>
+      <tr><td>คำวินิจฉัยที่ใช้ประจำ</td><td><code>/admin/favorite-diagnosis</code></td><td>ห้องตรวจแพทย์ — เลือก ICD ได้เร็ว</td></tr>
+      <tr><td>สร้าง Lab ที่ใช้ประจำ</td><td><code>/admin/favorite-lab</code></td><td>สั่ง Lab เป็นชุด</td></tr>
+      <tr><td>สร้าง Order ที่ใช้ประจำ</td><td><code>/admin/favorite-order</code></td><td>สั่ง Order เป็นชุด (Order Set)</td></tr>
+      <tr><td>Template การตรวจรักษา</td><td><code>/admin/favorite-template</code></td><td>เทมเพลตบันทึกการตรวจ</td></tr>
+      <tr><td>ฟอร์ม Heart Failure Clinic</td><td><code>/admin/heart-failure-manage</code></td><td>คลินิกเฉพาะทาง</td></tr>
+      <tr><td>หัวข้อเหตุผลการสั่ง Lab</td><td><code>/admin/hosp-lab-reason</code></td><td>Dropdown ตอนสั่ง Lab</td></tr>
+      <tr><td>หัวข้อแจ้งรายงานปัญหาใบสั่งยา</td><td><code>/admin/hosp-prescription-problem</code></td><td>ห้องยาแจ้งปัญหาใบสั่ง</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="tools">10. เครื่องมือตรวจสอบ &amp; แก้ปัญหา</h2>
+
+  <h3>10.1 Dashboard</h3>
+  <p><code>/admin/dashboard</code> — ภาพรวมการใช้งานระบบ · <code>GET /api/Admin/GetTaskInformation</code>,
+     <code>GET /api/Admin/GetUserActivity</code>, <code>POST /api/Admin/UpdateUserActivity</code></p>
+
+  <h3>10.2 Dashboard System Error</h3>
+  <p><code>/admin/dashboard-system-error</code> · สิทธิ <code>IT_ADMIN_SYSTEM_ERROR_DASHBOARD</code></p>
+  <p>รวมความผิดปกติข้ามโมดูลไว้ที่เดียว (component ดึงข้อมูลจาก AdminService, AdmitService, BillService,
+     MophClaimService, RegisterService, ReimbursementService) — ใช้ตรวจเช้าประจำวันได้ดี เช่น
+     ใบเรียกเก็บที่ค้าง, การส่ง MOPH Claim ที่ล้มเหลว, ข้อมูลทะเบียนที่ไม่สมบูรณ์</p>
+
+  <h3>10.3 ตรวจสอบ Data Dictionary [24.5]</h3>
+  <p><code>/admin/check-data-dictionary</code> · สิทธิ <code>IT_ADMIN_CHECK_DATADICTIONARY</code>
+     · <code>GET /api/Admin/GetTableDetailByTablename?TableName=&amp;search=</code></p>
+  <p>เปิดดูโครงสร้างและข้อมูลของตารางในระบบเพื่อตรวจสอบว่ารหัสหลักถูกตั้งค่าครบหรือไม่
+     โดยไม่ต้องเข้า SQL Server</p>
+
+  <h3>10.4 LOG</h3>
+  <p><code>/log-history/dashboard-audit</code></p>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>API</th><th>ดูอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET /api/Admin/GetAuditLogByView</code></td><td>Audit Log แยกตาม View/หน้าจอ</td></tr>
+      <tr><td><code>GET /api/Admin/GetAuditLogExpByView</code></td><td>Audit Log ของค่าใช้จ่าย</td></tr>
+      <tr><td><code>GET /api/Admin/GetAuditLogDetailById</code></td><td>รายละเอียดการเปลี่ยนแปลงรายรายการ</td></tr>
+      <tr><td><code>GET /api/Admin/GetActivityLog</code></td><td>Activity Log ของผู้ใช้</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>10.5 การส่ง PHR</h3>
+  <p><code>/admin/transfer-phr</code> — ตรวจสอบ/สั่งส่งข้อมูล PHR ด้วยตนเอง (ปกติทำโดย <code>MophSendPhrJob</code>)</p>
+
+  <h3>10.6 เครื่องมือคิว</h3>
+  <p><code>GET /api/Admin/GetQueueDetailByQueueId</code> · <code>GetQueueDetailByHn</code> —
+     ใช้ตรวจสอบข้อมูลคิวเมื่อผู้ใช้แจ้งปัญหาเรื่องคิว</p>
+
+  <!-- ================================================================== -->
+  <h2 id="menu">แผนผังเมนู “24. งานผู้ดูแลระบบ”</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>#</th><th>เมนู</th><th>เส้นทาง</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>dashboard</td><td><code>/admin/dashboard</code></td></tr>
+      <tr><td>2</td><td>dashboard system error</td><td><code>/admin/dashboard-system-error</code></td></tr>
+      <tr><td>3</td><td>ลงทะเบียนผู้ใช้งานระบบ</td><td><code>/admin/user-management</code></td></tr>
+      <tr><td>4</td><td>กำหนดสิทธิการใช้งาน</td><td><code>/admin/user-rights</code></td></tr>
+      <tr><td>5</td><td>กำหนด Role</td><td><code>/admin/role-manage</code></td></tr>
+      <tr><td>6</td><td>กำหนด Parameter</td><td><code>/admin/hosp-parameter</code></td></tr>
+      <tr><td>7</td><td>กำหนดการเรียกเก็บพิเศษ</td><td><code>/admin/hosp-special-claim</code> (ค่าใช้จ่าย / ICD)</td></tr>
+      <tr><td>8</td><td>กำหนดรหัสสถานที่ใน รพ.</td><td><code>/admin/hosp-workplace</code></td></tr>
+      <tr><td>9</td><td>กำหนดเตียงในโรงพยาบาล</td><td><code>/admin/hosp-bed</code></td></tr>
+      <tr><td>10</td><td>กำหนดสิทธิการรักษา</td><td><code>/admin/hosp-right</code></td></tr>
+      <tr><td>11</td><td>ประเภทสิทธิย่อย/สิทธิที่ใช้เบิก</td><td><code>/admin/hosp-nhso-inscl</code></td></tr>
+      <tr><td>12</td><td>ตั้งค่า Token ตรวจสอบสิทธิ สปสช.</td><td><code>/admin/hosp-nhso-token</code></td></tr>
+      <tr><td>13</td><td>กำหนดประเภทผู้ป่วย</td><td><code>/admin/hosp-patient-type</code></td></tr>
+      <tr><td>14</td><td>กำหนดหัวข้อเหตุผลการสั่ง Lab</td><td><code>/admin/hosp-lab-reason</code></td></tr>
+      <tr><td>15</td><td>กำหนดฟอร์ม Heart Failure Clinic</td><td><code>/admin/heart-failure-manage</code></td></tr>
+      <tr><td>16</td><td>หัวข้อแจ้งรายงานปัญหาใบสั่งยา</td><td><code>/admin/hosp-prescription-problem</code></td></tr>
+      <tr><td>17</td><td>กำหนดรหัสโรค / หัตถการ</td><td><code>/admin/hosp-icd</code></td></tr>
+      <tr><td>18</td><td>กำหนดรหัสกลุ่มการเงินที่ใช้ออกบิล</td><td><code>/admin/hosp-bill</code></td></tr>
+      <tr><td>19</td><td>กำหนดลำดับเลขที่</td><td><code>/admin/running-number</code></td></tr>
+      <tr><td>20</td><td>รหัสยาเวชภัณฑ์ / ค่าใช้จ่าย / Lab / X-Ray</td><td><code>/admin/hosp-*-registration</code></td></tr>
+      <tr><td>21</td><td>รหัสบัญชี</td><td><code>/admin/accounting-list</code></td></tr>
+      <tr><td>22</td><td>คำวินิจฉัย / Lab / Order ที่ใช้ประจำ · Template</td><td><code>/admin/favorite-*</code></td></tr>
+      <tr><td>23</td><td>ตรวจสอบ Data Dictionary [24.5]</td><td><code>/admin/check-data-dictionary</code></td></tr>
+      <tr><td>24</td><td>การส่ง PHR</td><td><code>/admin/transfer-phr</code></td></tr>
+      <tr><td>25</td><td>LOG</td><td><code>/log-history/dashboard-audit</code></td></tr>
+      <tr><td>26</td><td>รหัสหลัก / ระบบรายงาน / รายงาน</td><td><code>/code/all-module</code> · <code>/report/all-report</code> · <code>/admin/itadmin/export-report</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="pitfall">ข้อควรระวัง</h2>
+
+  <div class="grid grid--2">
+    <div class="card">
+      <h4>1. Parameter เป็นแถวเดียวทั้งระบบ</h4>
+      <p><code>TBM_HOSP_PARAMETERS</code> มีแถวเดียว การแก้ค่าจะมีผลกับผู้ใช้ทุกคนทันที
+         ควรทดสอบที่ environment ทดสอบก่อน</p>
+    </div>
+    <div class="card">
+      <h4>2. เปลี่ยนสิทธิต้อง login ใหม่</h4>
+      <p>สิทธิถูก resolve ตอนออก token ผู้ใช้ต้อง logout/login ใหม่จึงจะเห็นเมนูที่เปลี่ยน</p>
+    </div>
+    <div class="card">
+      <h4>3. UserType กำหนดบทบาทข้ามระบบ</h4>
+      <p>ค่า <code>M/D/E/N/P</code> ถูกใช้โดย Smart IPD เพื่อเลือกโมดูล
+         ตั้งผิดจะเข้าโมดูลผิดทันที</p>
+    </div>
+    <div class="card">
+      <h4>4. Token แสดงครั้งเดียว</h4>
+      <p>ทั้ง Personal Access Token และ Revoke — ถ้าไม่ได้คัดลอกไว้ต้อง Revoke เพื่อออกใหม่</p>
+    </div>
+    <div class="card">
+      <h4>5. แก้อัตราสิทธิย้อนหลังไม่กระทบของเก่า</h4>
+      <p>ยอด <code>CREDIT/CASH_RETURN/CASH_NOT_RETURN</code> ถูกคำนวณและบันทึกตอนสร้างรายการ
+         การแก้อัตราจะมีผลกับรายการใหม่เท่านั้น รายการเก่าต้องใช้เมนูปรับยอด/โอนสิทธิ</p>
+    </div>
+    <div class="card">
+      <h4>6. Import Excel ทับข้อมูลเดิม</h4>
+      <p>Import Special Claim Expense/ICD ควรดาวน์โหลด template ล่าสุดทุกครั้ง
+         และตรวจข้อมูลก่อนอัปโหลด</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><a href="04-social-welfare-tech.html">← 04 งานสังคมสงเคราะห์</a></span>
+    <span>ถัดไป: <a href="06-smartipd-doctor-tech.html">06 Smart IPD Doctor →</a></span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

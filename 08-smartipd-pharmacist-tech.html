@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 · Smart IPD — Pharmacist Module — HA.OS Module Flow</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="m8">
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <p class="crumb"><a href="index.html">หน้าแรก</a> › Smart IPD › 08 Pharmacist Module</p>
+
+  <div class="page-head">
+    <h1>08 · Smart IPD — Pharmacist Module</h1>
+    <p>โมดูลเภสัชกรเป็นโมดูลที่ถูก <b>แยกออกจากส่วนอื่นอย่างชัดเจน</b> — ผู้ใช้ role Pharmacist
+       จะถูก guard บังคับให้อยู่ใน <code>/pharmacist/*</code> เท่านั้น งานหลักคือเดินใบสั่งยา IPD
+       ผ่านสถานะ 5 ขั้น (รอคัดกรอง → รอจัดยา → รอตรวจสอบ → รอจ่าย → จ่ายแล้ว)
+       พร้อมการตรวจสอบซ้ำ 2 ชั้นสำหรับยา High Alert</p>
+  </div>
+
+  <div class="toc">
+    <b>หัวข้อในหน้านี้</b>
+    <ol>
+      <li><a href="#status">สถานะใบสั่งยา 5 ขั้น</a></li>
+      <li><a href="#login">ขั้นที่ 1 — Login &amp; เลือกห้องยา</a></li>
+      <li><a href="#new">ขั้นที่ 2 — IPD New Order</a></li>
+      <li><a href="#generate">ขั้นที่ 3 — Generate Order รายวัน</a></li>
+      <li><a href="#work">ขั้นที่ 4 — เดินสถานะใบสั่ง</a></li>
+      <li><a href="#alert">ขั้นที่ 5 — ธงเตือนที่ต้องตรวจ</a></li>
+      <li><a href="#verify">ขั้นที่ 6 — Verification 2 ชั้น (HAD)</a></li>
+      <li><a href="#holdoff">ขั้นที่ 7 — Hold / Off / ยกเลิก</a></li>
+      <li><a href="#group">จัดการแบบกลุ่ม &amp; พิมพ์ Sticker</a></li>
+      <li><a href="#homemed">Home Med</a></li>
+      <li><a href="#recon">Med Reconcile</a></li>
+      <li><a href="#api">API Reference</a></li>
+      <li><a href="#pitfall">ข้อควรระวัง</a></li>
+    </ol>
+  </div>
+
+  <div class="roles">
+    <span class="role"><b>Role:</b> <code>Pharmacist</code> (HA.OS UserType = <code>P</code>)</span>
+    <span class="role"><b>Permission:</b> <code>PHARMACIST</code>, <code>MEDICATION_DISPENSING</code>, <code>PHARMACY_MANAGEMENT</code>, <code>DRUG_INVENTORY</code></span>
+    <span class="role"><b>Root:</b> <code>/pharmacist</code></span>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="status">สถานะใบสั่งยา 5 ขั้น (+ 3 สถานะพิเศษ)</h2>
+
+  <ul class="flow">
+    <li><b>W</b><span>รอคัดกรอง</span></li>
+    <li><b>P</b><span>รอจัดยา</span></li>
+    <li><b>V</b><span>รอตรวจสอบยา</span></li>
+    <li><b>R</b><span>รอจ่ายยา</span></li>
+    <li class="is-done"><b>D</b><span>จ่ายแล้ว</span></li>
+  </ul>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>รหัส</th><th>ชื่อ</th><th>ความหมาย</th><th>ใครทำ</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill pill--amber">WG</span></td><td>รอ Generate</td><td>Order ต่อเนื่องที่ยังไม่ถูกสร้างใบสั่งของวันนี้</td><td>ระบบ / เภสัชกรกด Generate</td></tr>
+      <tr><td><span class="pill pill--purple">RF</span></td><td>คำขอเติมยา</td><td>Refill จาก Ward</td><td>พยาบาล</td></tr>
+      <tr><td><span class="pill pill--amber">W</span></td><td>รอคัดกรอง</td><td>ใบสั่งเข้ามาแล้ว รอเภสัชกรคัดกรองความเหมาะสม</td><td>เภสัชกร</td></tr>
+      <tr><td><span class="pill pill--purple">P</span></td><td>รอจัดยา</td><td>คัดกรองผ่าน รอหยิบ/จัดยา</td><td>เภสัชกร/ผู้ช่วย</td></tr>
+      <tr><td><span class="pill pill--amber">V</span></td><td>รอตรวจสอบยา</td><td>จัดยาเสร็จ รอตรวจสอบก่อนจ่าย</td><td>เภสัชกร</td></tr>
+      <tr><td><span class="pill pill--blue">R</span></td><td>รอจ่ายยา</td><td>ตรวจสอบผ่าน รอส่งขึ้น Ward</td><td>เภสัชกร</td></tr>
+      <tr><td><span class="pill pill--green">D</span></td><td>จ่ายแล้ว</td><td>จ่ายเรียบร้อย</td><td>เภสัชกร</td></tr>
+      <tr><td><span class="pill pill--gray">C</span></td><td>ยกเลิก</td><td>ใบสั่งถูกยกเลิก</td><td>เภสัชกร</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="small">นิยามอยู่ที่ <code>STATUS_CODES</code> ใน
+     <code>features/pharmacist/models/pharmacist.types.ts</code> (มีสีประจำสถานะกำกับด้วย)</p>
+
+  <!-- ================================================================== -->
+  <h2 id="login">ขั้นที่ 1 — Login &amp; เลือกห้องยา</h2>
+
+  <ol class="steps">
+    <li>
+      <b>Login</b>
+      <p><code>/auth/login</code> — ระบบ map <code>UserType = 'P'</code> ของ HA.OS เป็น role <code>Pharmacist</code></p>
+    </li>
+    <li>
+      <b>ถูก redirect เข้าโมดูลเภสัช</b>
+      <p><code>roleRedirectGuard</code> อนุญาตให้เภสัชกรเข้าได้เฉพาะ <code>/pharmacist/*</code> และ <code>/home</code>
+         — เส้นทางอื่นจะถูกส่งกลับมาที่ <code>/pharmacist</code></p>
+    </li>
+    <li>
+      <b>เลือกห้องยา</b>
+      <p><code>/auth/pharmacy-room-selection</code> — บังคับโดย <code>pharmacyRoomSelectionGuard</code>
+         ทุก route ในโมดูลนี้ · ระบบจำห้องล่าสุดไว้ใน <code>RememberedAccount.lastSelectedPharmacyRoomCode</code></p>
+      <p class="small">เปลี่ยนห้องได้จากการ์ดข้อมูลห้องยาบนหัวหน้าจอ</p>
+    </li>
+    <li>
+      <b>เข้าหน้าเริ่มต้น</b>
+      <p><code>/pharmacist</code> redirect ไป <code>/pharmacist/ipd-new-order</code></p>
+    </li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="new">ขั้นที่ 2 — IPD New Order (จอทำงานหลัก)</h2>
+
+  <p><code>/pharmacist/ipd-new-order</code> · <code>IpdNewOrderComponent</code></p>
+
+  <h3>2.1 มุมมองแบบสรุปรายผู้ป่วย (แนะนำ)</h3>
+  <p><code>GET /api/PharmacistDispensing/pending-patient-summary</code></p>
+  <ul>
+    <li>คืนผลแบบแบ่งหน้า <b>10 ผู้ป่วยต่อหน้า</b> (ไม่ใช่ 10 รายการ) เพื่อลดข้อมูลที่ต้องโหลด</li>
+    <li>แต่ละแถวสรุป: จำนวน Order ทั้งหมด, วันที่ Order ล่าสุด, ธงประเภท Order</li>
+    <li>กรองได้ตาม สถานะ · Ward · แพทย์ · คำค้น (ชื่อผู้ป่วย/HN/AN/ชื่อยา)</li>
+  </ul>
+
+  <h3>2.2 มุมมองรายการเต็ม</h3>
+  <p><code>GET /api/PharmacistDispensing/pending</code> — พารามิเตอร์ที่ใช้กรอง</p>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Query param</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td><code>requestDate</code></td><td>วันที่ของใบสั่ง (ค่าเริ่มต้น = วันนี้)</td></tr>
+      <tr><td><code>wardWorkId</code></td><td>กรองตามหอผู้ป่วย</td></tr>
+      <tr><td><code>admitId</code> / <code>an</code></td><td>กรองผู้ป่วยรายคน (<code>admitId</code> มีลำดับความสำคัญสูงกว่า)</td></tr>
+      <tr><td><code>status</code></td><td><code>W</code> / <code>P</code> / <code>V</code> / <code>R</code> / <code>D</code></td></tr>
+      <tr><td><code>isHomeMed</code></td><td>เอาเฉพาะยากลับบ้าน</td></tr>
+      <tr><td><code>generatedBy</code></td><td>กรองตามผู้/ระบบที่สร้างใบสั่ง</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">Response มี <b>ตัวนับแยกตามสถานะ</b> มาด้วย ใช้ทำชิปกรองด้านบน
+     · endpoint นี้เปิดให้ Doctor/Nurse/Pharmacist เรียกดูได้ (<code>RequireRole</code> 3 บทบาท)</p>
+
+  <h3>2.3 เข้าดูผู้ป่วยรายคน</h3>
+  <p><code>/pharmacist/patient-order</code> · <code>PharmacistPatientOrderComponent</code>
+     — รายการยาทั้งหมดของผู้ป่วย พร้อมธงเตือน · เข้าได้จากการคลิกในตาราง หรือ
+     <b>สแกน QR</b> ที่ <code>/pharmacist/scan</code></p>
+
+  <!-- ================================================================== -->
+  <h2 id="generate">ขั้นที่ 3 — Generate Order รายวัน</h2>
+
+  <p><code>/pharmacist/ipd-generate-order</code> · <code>IpdGenerateOrderComponent</code>
+     · API <code>POST /api/PharmacistDispensing/generate-daily?requestDate=</code></p>
+
+  <ol class="steps steps--blue">
+    <li>
+      <b>เลือกวันที่</b>
+      <p>ค่าเริ่มต้นคือวันนี้ — ใช้ย้อนหลังได้กรณีวันก่อนหน้าไม่ถูก generate</p>
+    </li>
+    <li>
+      <b>กด Generate</b>
+      <p>ระบบสร้างใบสั่งจ่ายยาสถานะ <span class="pill pill--amber">WG</span> (WaitingGenerate)
+         สำหรับ Order ประเภท <b>Continue</b> ที่ต่อเนื่องจากวันก่อน</p>
+    </li>
+    <li>
+      <b>ตรวจผลลัพธ์</b>
+      <p>API คืน <code>GenerateDailyDispensingResultDto</code> ที่บอกจำนวน <b>ที่สร้างใหม่</b>
+         และ <b>ที่มีอยู่แล้ว</b> — ใช้ตรวจว่ากด Generate ซ้ำหรือไม่</p>
+    </li>
+  </ol>
+
+  <div class="note">
+    <b class="note__label">ทำไมต้อง Generate</b>
+    <p>Order ประเภท <code>OneDay</code> เกิดใบสั่งจ่ายทันทีที่แพทย์สั่ง แต่ <code>Continue</code>
+       เป็นคำสั่งต่อเนื่องที่ต้อง “แตกเป็นใบสั่งของแต่ละวัน” — ขั้นตอนนี้คือการแตกใบสั่งของวันนั้น</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="work">ขั้นที่ 4 — เดินสถานะใบสั่ง</h2>
+
+  <p>API เดียวใช้เดินทุกสถานะ: <code>PUT /api/PharmacistDispensing/status</code>
+     (<code>RequireRole(Pharmacist)</code> เท่านั้น)</p>
+
+  <pre class="code"><code><span class="c">// body</span>
+{
+  <span class="n">"dispensingRequestIds"</span>: [ 1001, 1002, 1003 ],   <span class="c">// อัปเดตทีละหลายใบได้</span>
+  <span class="n">"newStatus"</span>: <span class="s">"Verified"</span>                          <span class="c">// Waiting | Pending | Verified | Ready | Dispensed</span>
+}</code></pre>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ขั้น</th><th>สิ่งที่เภสัชกรทำ</th><th>newStatus</th><th>สถานะผลลัพธ์</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>คัดกรองใบสั่ง — ตรวจธงเตือน, ขนาดยา, ความเหมาะสม</td><td><code>Pending</code></td><td><span class="pill pill--purple">P</span></td></tr>
+      <tr><td>2</td><td>จัดยาตามใบสั่ง</td><td><code>Verified</code></td><td><span class="pill pill--amber">V</span></td></tr>
+      <tr><td>3</td><td>ตรวจสอบยาที่จัดแล้ว (+ Verification ถ้าเป็น HAD)</td><td><code>Ready</code></td><td><span class="pill pill--blue">R</span></td></tr>
+      <tr><td>4</td><td>ส่งยาขึ้น Ward</td><td><code>Dispensed</code></td><td><span class="pill pill--green">D</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--tip">
+    <b class="note__label">ทำงานเป็นชุด</b>
+    <p><code>dispensingRequestIds</code> เป็น array — หน้า “จัดการแบบกลุ่ม” ใช้ความสามารถนี้
+       เพื่อเดินสถานะหลายใบพร้อมกัน</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="alert">ขั้นที่ 5 — ธงเตือนที่ต้องตรวจ</h2>
+
+  <p>ทุกบรรทัดยาที่เภสัชกรเห็นมาพร้อมธงเตือนที่ระบบตรวจให้ตั้งแต่ตอนแพทย์สั่ง
+     (<code>POST /api/MedicationOrder/validate</code>) และแต่ละธงมีข้อความอธิบายของตัวเอง</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ธง</th><th>ข้อความประกอบ</th><th>เภสัชกรต้องทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><code>isDrugAllergy</code></td><td><code>drugAllergyMessage</code></td><td>ตรวจประวัติแพ้ยา — ถ้าจริงต้องติดต่อแพทย์</td></tr>
+      <tr><td><code>isDuplicateDrug</code></td><td><code>duplicateDrugMessage</code></td><td>ตรวจว่าซ้ำจริงหรือเป็นการปรับขนาด</td></tr>
+      <tr><td><code>isDrugDrugInteraction</code></td><td><code>drugDrugInteractionMessage</code></td><td>ประเมินระดับความรุนแรง</td></tr>
+      <tr><td><code>isDrugDiseaseInteraction</code></td><td><code>drugDiseaseInteractionMessage</code></td><td>เทียบกับโรคประจำตัว</td></tr>
+      <tr><td><code>isDrugLabInteraction</code></td><td><code>drugLabInteractionMessage</code></td><td>ดูผล Lab ล่าสุด (เช่น ค่าไต)</td></tr>
+      <tr><td><code>isNonEssentialDrug</code></td><td><code>nonEssentialDrugMessage</code></td><td>ยานอกบัญชี — ตรวจการอนุมัติ/เบิกจ่าย</td></tr>
+      <tr><td><code>isFormDue</code></td><td><code>formDueMessage</code> + <code>dueAnswerList</code></td><td><b>อ่านคำตอบ DUE ที่แพทย์กรอกมา</b> แล้วประเมิน</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>ดูคำตอบ DUE ของแพทย์</h3>
+  <p>ถ้ารายการมี <code>dueTemplateId</code> ให้โหลดโครงคำถามด้วย
+     <code>GET /api/Medication/due-templates/{dueTemplateId}</code>
+     แล้วนำมาแสดงคู่กับ <code>dueAnswerList</code> ที่แพทย์กรอกไว้ตอนสั่ง</p>
+
+  <!-- ================================================================== -->
+  <h2 id="verify">ขั้นที่ 6 — Verification 2 ชั้น สำหรับยา High Alert (HAD)</h2>
+
+  <p>ยา High Alert ต้องมีเภสัชกรคนที่ 2 ยืนยัน — ระบบบันทึกทั้งคนแรกและ <code>secondReviewerId</code>/<code>secondReviewerName</code></p>
+
+  <ol class="steps steps--purple">
+    <li>
+      <b>ดูรายชื่อเภสัชกรที่เป็นผู้ตรวจสอบได้</b>
+      <p><code>GET /api/PharmacistDispensing/verification/pharmacists</code></p>
+    </li>
+    <li>
+      <b>ผู้ตรวจสอบคนที่ 2 ยืนยันตัวตนด้วยรหัสผ่าน</b>
+      <p><code>POST /api/PharmacistDispensing/verification/verify-password</code> — ส่ง userId + password
+         ระบบคืนผลว่าผ่านหรือไม่ (ไม่ต้อง logout/login สลับบัญชี)</p>
+    </li>
+    <li>
+      <b>บันทึกการตรวจสอบ</b>
+      <p><code>POST /api/PharmacistDispensing/verification</code> — รองรับทั้งใบเดียวและแบบชุด
+         คืน <code>SaveVerificationResponseDto</code> พร้อม verification ID</p>
+    </li>
+    <li>
+      <b>ดูประวัติการตรวจสอบ</b>
+      <p>ใบเดียว: <code>GET /api/PharmacistDispensing/verification/{dispensingRequestId}</code><br>
+         หลายใบพร้อมกัน: <code>POST /api/PharmacistDispensing/verification/batch</code></p>
+    </li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="holdoff">ขั้นที่ 7 — Hold / Off / ยกเลิก</h2>
+
+  <p>เมื่อแพทย์สั่งพักหรือหยุดยา เภสัชกรต้อง <b>กดรับทราบ</b> เพื่อให้ระบบรู้ว่ามีคนเห็นแล้ว</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>สถานการณ์</th><th>ธงที่เห็น</th><th>API ที่ต้องเรียก</th><th>บันทึกอะไร</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>แพทย์สั่ง <b>Hold</b> (พักชั่วคราว)</td>
+        <td><code>isOnHold</code> + <code>holdOrderReason</code></td>
+        <td><code>POST /api/PharmacistDispensing/acknowledge-hold</code></td>
+        <td><code>isHoldAcknowledged = true</code></td>
+      </tr>
+      <tr>
+        <td>แพทย์สั่ง <b>Off</b> (หยุดยา)</td>
+        <td><code>isOff</code> + <code>offOrderDate</code> + <code>offOrderReason</code></td>
+        <td><code>POST /api/PharmacistDispensing/acknowledge-off</code></td>
+        <td><code>isOffAcknowledged</code>, <code>offAcknowledgedBy</code>, <code>offAcknowledgedAt</code></td>
+      </tr>
+      <tr>
+        <td>ต้องยกเลิกใบสั่งจ่าย</td>
+        <td>—</td>
+        <td><code>POST /api/PharmacistDispensing/cancel-dispensing-request</code></td>
+        <td>สถานะ <span class="pill pill--gray">C</span></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="small">แหล่งข้อมูล: <code>TB_IPD_ORDER_HOLD_LOGS</code> (Hold) และ
+     <code>TB_IPD_ORDER_NOTE_DETAILS</code> (Off) ฝั่ง HA.OS —
+     พยาบาลจะเห็น badge เดียวกันบนหน้า eMAR (<a href="07-smartipd-nurse-tech.html#emar">โมดูล 06</a>)</p>
+
+  <!-- ================================================================== -->
+  <h2 id="group">จัดการแบบกลุ่ม &amp; พิมพ์ Sticker</h2>
+
+  <p><code>/pharmacist/group-manage</code> · <code>IpdGroupManageComponent</code></p>
+  <ul>
+    <li>เลือกใบสั่งหลายใบแล้วเดินสถานะพร้อมกัน (<code>PUT /status</code> กับ array ของ ID)</li>
+    <li>พิมพ์ฉลากยาเป็นชุด — <code>POST /api/Medication/generate-label</code></li>
+    <li>หน้านี้มี <code>printStickerDialogGuard</code> เป็น <b>canDeactivate</b> —
+        เตือนก่อนออกจากหน้าถ้ายังไม่ได้พิมพ์ฉลากที่ค้างอยู่ (ใช้ที่หน้า <code>patient-order</code> ด้วย)</li>
+  </ul>
+
+  <h3>ดูรูปผู้ป่วย</h3>
+  <p><code>GET /api/PharmacistDispensing/patient/picture</code> — ใช้ยืนยันตัวผู้ป่วยก่อนจ่ายยา</p>
+
+  <!-- ================================================================== -->
+  <h2 id="homemed">Home Med (ยากลับบ้าน)</h2>
+
+  <p><code>/pharmacist/ipd-home-med-order</code> · <code>IpdHomeMedOrderComponent</code></p>
+  <ul>
+    <li>กรองด้วย <code>isHomeMed=true</code> ที่ <code>GET /pending</code></li>
+    <li>ต้นทางคือ Order ที่แพทย์สั่งด้วย <code>medication-order?type=HomeMed</code></li>
+    <li>เดินสถานะเหมือนใบสั่งปกติ แต่มักต้องทำคู่กับ Med Reconcile Discharge และการให้คำแนะนำผู้ป่วย</li>
+  </ul>
+
+  <!-- ================================================================== -->
+  <h2 id="recon">Med Reconcile (เภสัชกร)</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หน้าจอ</th><th>เส้นทาง</th><th>หมายเหตุ</th></tr></thead>
+    <tbody>
+      <tr><td>รายการผู้ป่วยที่ต้องทำ</td><td><code>/pharmacist/med-reconcile</code></td><td><code>PharmacistMedReconcileComponent</code></td></tr>
+      <tr><td>รายละเอียดผู้ป่วย</td><td><code>/pharmacist/med-reconcile/:an</code></td><td>มีแท็บย่อย admit / discharge</td></tr>
+      <tr><td>· แรกรับ</td><td><code>/pharmacist/med-reconcile/:an/admit</code></td>
+          <td rowspan="2">ใช้ component ร่วมกับฝั่งแพทย์ (<code>patient-med-reconcile-*</code>)
+              โดยส่ง <code>data: { hideOuterShell: true }</code></td></tr>
+      <tr><td>· จำหน่าย</td><td><code>/pharmacist/med-reconcile/:an/discharge</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="api">API Reference — <code>PharmacistDispensingController</code></h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Method</th><th>Path</th><th>Role ที่เรียกได้</th><th>หน้าที่</th></tr></thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/pending</code></td><td>Doctor, Nurse, Pharmacist</td><td>รายการใบสั่งพร้อมตัวนับสถานะ</td></tr>
+      <tr><td>GET</td><td><code>/pending-patient-summary</code></td><td>Doctor, Nurse, Pharmacist</td><td>สรุปรายผู้ป่วยแบบแบ่งหน้า (10 คน/หน้า)</td></tr>
+      <tr><td>PUT</td><td><code>/status</code></td><td>Pharmacist</td><td>เดินสถานะ (รับหลาย ID)</td></tr>
+      <tr><td>POST</td><td><code>/generate-daily</code></td><td>Pharmacist</td><td>สร้างใบสั่งของ Continue order</td></tr>
+      <tr><td>GET</td><td><code>/patient/picture</code></td><td>—</td><td>รูปผู้ป่วย</td></tr>
+      <tr><td>GET</td><td><code>/verification/{dispensingRequestId}</code></td><td>—</td><td>ประวัติ verification ของใบเดียว</td></tr>
+      <tr><td>POST</td><td><code>/verification/batch</code></td><td>—</td><td>ประวัติ verification หลายใบ</td></tr>
+      <tr><td>POST</td><td><code>/verification</code></td><td>—</td><td>บันทึก verification (HAD)</td></tr>
+      <tr><td>POST</td><td><code>/verification/verify-password</code></td><td>—</td><td>ยืนยันรหัสผ่านผู้ตรวจสอบคนที่ 2</td></tr>
+      <tr><td>GET</td><td><code>/verification/pharmacists</code></td><td>—</td><td>รายชื่อเภสัชกรที่ตรวจสอบได้</td></tr>
+      <tr><td>POST</td><td><code>/acknowledge-hold</code></td><td>—</td><td>รับทราบการ Hold</td></tr>
+      <tr><td>POST</td><td><code>/acknowledge-off</code></td><td>—</td><td>รับทราบการ Off</td></tr>
+      <tr><td>POST</td><td><code>/cancel-dispensing-request</code></td><td>—</td><td>ยกเลิกใบสั่งจ่าย</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="small">API เสริมที่ใช้ร่วม: <code>MedicationController</code> (ค้นยา, ฉลาก, DUE template)
+     · <code>MedicationDispensingController</code> (<code>GET /patients</code>, <code>POST /dispense</code> — ฝั่งพยาบาล)
+     · <code>MedReconcileController</code></p>
+
+  <!-- ================================================================== -->
+  <h2 id="pitfall">ข้อควรระวัง</h2>
+
+  <div class="grid grid--2">
+    <div class="card">
+      <h4>1. ไม่เลือกห้องยา = เข้าไม่ได้</h4>
+      <p>ทุก route ในโมดูลมี <code>pharmacyRoomSelectionGuard</code> — ถ้าเด้งกลับหน้าเลือกห้องซ้ำ ๆ
+         ให้ตรวจว่าห้องยาถูกตั้งค่าไว้ใน master data ของ HA.OS หรือยัง</p>
+    </div>
+    <div class="card">
+      <h4>2. เภสัชกรออกจากโมดูลไม่ได้</h4>
+      <p><code>roleRedirectGuard</code> บังคับ — ถ้าเภสัชกรต้องใช้หน้าจออื่น ต้องแก้ที่ระดับ role/permission
+         ไม่ใช่ที่ URL</p>
+    </div>
+    <div class="card">
+      <h4>3. Generate ซ้ำไม่สร้างซ้ำ</h4>
+      <p>API คืนจำนวน “มีอยู่แล้ว” แยกจาก “สร้างใหม่” ให้ดูตัวเลขนี้แทนการเดา</p>
+    </div>
+    <div class="card">
+      <h4>4. ธงเตือนเป็นข้อมูลจากตอนแพทย์สั่ง</h4>
+      <p>ถ้าสถานะผู้ป่วยเปลี่ยนหลังจากนั้น (เช่นผล Lab ใหม่) ธงอาจยังไม่อัปเดต
+         — ควรตรวจผล Lab ล่าสุดประกอบด้วย</p>
+    </div>
+    <div class="card">
+      <h4>5. Hold/Off ที่ยังไม่รับทราบ</h4>
+      <p>ถ้าเภสัชกรไม่กดรับทราบ พยาบาลจะเห็น badge ค้างบน eMAR
+         และอาจเกิดความสับสนว่าตกลงให้ยาได้หรือไม่</p>
+    </div>
+    <div class="card">
+      <h4>6. อย่าลืมพิมพ์ฉลาก</h4>
+      <p><code>printStickerDialogGuard</code> จะเตือนตอนออกจากหน้า — ถ้ากดข้ามไป ยาอาจถูกส่งขึ้น Ward โดยไม่มีฉลาก</p>
+    </div>
+  </div>
+
+  <div class="note">
+    <b class="note__label">เอกสารประกอบในรีโป</b>
+    <p><code>PHARMACIST_MODULE_IMPLEMENTATION.md</code> · <code>PHARMACIST_MODULE_E2E_TESTING_GUIDE.md</code>
+       · <code>PHARMACIST_QUICK_TEST.md</code> · <code>DRUG_INTERACTION_TESTING_GUIDE.md</code>
+       · <code>DUE_FEATURE_SUMMARY.md</code> / <code>DUE_IMPLEMENTATION_SUMMARY.md</code>
+       · <code>docs/medication-dispensing-api-spec.md</code></p>
+  </div>
+
+  <div class="footer">
+    <span><a href="07-smartipd-nurse-tech.html">← 07 Smart IPD Nurse</a></span>
+    <span>ถัดไป: <a href="09-health-checkup-tech.html">09 ห้องตรวจสุขภาพ →</a></span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

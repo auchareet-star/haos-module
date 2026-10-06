@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HA.OS — คู่มือการใช้งานรายโมดูล</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <div class="page-head">
+    <h1>HA.OS — คู่มือการใช้งานรายโมดูล</h1>
+    <p>เอกสารชุดนี้อธิบายว่าแต่ละโมดูล<b>ทำงานอย่างไร ต้องเตรียมข้อมูลอะไรก่อน ทำที่เมนูไหน
+       และได้ผลลัพธ์ออกมาเป็นอะไร</b> พร้อมตัวอย่างการใช้งานจริงและปัญหาที่พบบ่อย
+       เขียนสำหรับผู้ใช้งาน ไม่ลงรายละเอียดทางเทคนิค</p>
+  </div>
+
+  <h2>เลือกโมดูลที่ต้องการ</h2>
+
+  <div class="grid grid--2">
+
+    <a class="card m1" href="01-blood-bank.html">
+      <div class="card__tag">1 · ระบบหลัก</div>
+      <div class="card__title">งานธนาคารเลือด</div>
+      <p class="card__desc">ตั้งแต่แพทย์สั่งเลือด → ธนาคารเลือดยืนยันวันใช้และความเร่งด่วน →
+         ห้องปฏิบัติการจับคู่เลือดและจ่ายถุงเลือด → ติดตามผลและพิมพ์ใบรับเลือด</p>
+    </a>
+
+    <a class="card m2" href="02-finance.html">
+      <div class="card__tag">2 · ระบบหลัก</div>
+      <div class="card__title">การเงินผู้ป่วยนอก / ผู้ป่วยใน</div>
+      <p class="card__desc">ตั้งจุดเก็บเงิน → ตรวจสอบสิทธิ → สรุปค่ารักษา → รับเงินและออกใบเสร็จ
+         · รวมถึงเงินมัดจำ การยกเลิกใบเสร็จ และการโอนค่าใช้จ่ายข้ามสิทธิ</p>
+    </a>
+
+    <a class="card m3" href="03-reimbursement.html">
+      <div class="card__tag">3 · ระบบหลัก</div>
+      <div class="card__title">บัญชีลูกหนี้ / งานเรียกเก็บ</div>
+      <p class="card__desc">ตั้งลูกหนี้ → ปิดสิทธิและปิดบัญชี → จัดเข้ารอบส่งเบิก → ส่งเบิกและติดตามผล →
+         นำเข้าไฟล์ผลตรวจสอบ → บันทึกรับชำระและตัดยอด</p>
+    </a>
+
+    <a class="card m4" href="04-social-welfare.html">
+      <div class="card__tag">4 · ระบบหลัก</div>
+      <div class="card__title">งานสังคมสงเคราะห์</div>
+      <p class="card__desc">ประเมินผู้ป่วยที่จ่ายไม่ไหว → เปิดวงเงินลดหย่อน →
+         ตัดส่วนลดออกจากค่ารักษาจริง → ติดตามวงเงินคงเหลือ · รวมการถอนส่วนลดและเอกสารอนุมัติ</p>
+    </a>
+
+    <a class="card m5" href="05-admin.html">
+      <div class="card__tag">5 · ระบบหลัก</div>
+      <div class="card__title">งานผู้ดูแลระบบ</div>
+      <p class="card__desc">ผู้ใช้และสิทธิการใช้งาน · การตั้งค่าระบบและการเปิดปิดโมดูล ·
+         รหัสหลักที่ทุกโมดูลใช้ · เลขที่เอกสาร · และเครื่องมือดูแลแก้ปัญหาประจำวัน</p>
+    </a>
+
+    <a class="card m5" href="05-admin-flow.html">
+      <div class="card__tag">5.1 · ระบบหลัก</div>
+      <div class="card__title">ผู้ดูแลระบบ — Flow รายเมนู</div>
+      <p class="card__desc">Activity Diagram และขั้นตอนลงมือทำของทั้ง 13 เมนู —
+         ตั้งค่าอะไรก่อนหลัง เมนูไหนต้องมีอะไรมาก่อน และงานประจำหลังเปิดใช้ระบบ</p>
+    </a>
+
+    <a class="card m6" href="06-smartipd-doctor.html">
+      <div class="card__tag">6 · Smart IPD</div>
+      <div class="card__title">Smart IPD — สำหรับแพทย์</div>
+      <p class="card__desc">ใช้แท็บเล็ตข้างเตียง — ดูผลแล็บ ภาพเอกซเรย์ และคำสั่งการรักษา
+         เขียนบันทึกการตรวจ สั่งยา/แล็บ/เอกซเรย์ พร้อมคำเตือนความปลอดภัยด้านยา และงานตอนจำหน่าย</p>
+    </a>
+
+    <a class="card m7" href="07-smartipd-nurse.html">
+      <div class="card__tag">7 · Smart IPD</div>
+      <div class="card__title">Smart IPD — สำหรับพยาบาล</div>
+      <p class="card__desc">ดูงานประจำวันและงานทั้งกะ · บันทึกรับผู้ป่วยใหม่ · สัญญาณชีพ ·
+         แผนการปฏิบัติ · ตารางให้ยา · และบันทึกทางการพยาบาล</p>
+    </a>
+
+    <a class="card m8" href="08-smartipd-pharmacist.html">
+      <div class="card__tag">8 · Smart IPD</div>
+      <div class="card__title">Smart IPD — สำหรับเภสัชกร</div>
+      <p class="card__desc">เลือกห้องยา → สร้างใบสั่งประจำวัน → คัดกรองตามป้ายเตือน →
+         เดินสถานะจนจ่ายยา · รวมการตรวจสอบ 2 ชั้นสำหรับยาความเสี่ยงสูง และการทบทวนรายการยา</p>
+    </a>
+
+    <a class="card m9" href="09-health-checkup.html">
+      <div class="card__tag">9 · ตรวจสุขภาพ</div>
+      <div class="card__title">ห้องตรวจสุขภาพ</div>
+      <p class="card__desc">สร้างแพ็กเกจและโครงการ → สั่งแพ็กเกจรายคนหรือรายกลุ่ม → นัดหมาย →
+         เดินจุดตรวจ → ห้องตรวจแพทย์ → นำเข้าผลและออกใบสรุป · ผู้รับบริการดูผลเองได้</p>
+    </a>
+
+    <a class="card m10" href="10-data-migration.html">
+      <div class="card__tag">10 · การเริ่มใช้ระบบ</div>
+      <div class="card__title">แผนการย้ายข้อมูลจากระบบเดิม</div>
+      <p class="card__desc">สำหรับทีมไอที — ต้องรู้อะไรก่อน ต้องขอข้อมูลอะไร วิธีนำข้อมูลเข้า 5 แบบ
+         รูปแบบการตัดระบบ 3 แบบ แผนงาน 6 เฟส เกณฑ์ตรวจสอบ และ Cutover Runbook</p>
+    </a>
+
+  </div>
+
+  <h2>วิธีอ่านเอกสาร</h2>
+
+  <p>ทุกโมดูลเขียนด้วยโครงเดียวกัน เพื่อให้หาสิ่งที่ต้องการได้เร็ว</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หัวข้อ</th><th>ตอบคำถามว่า</th></tr></thead>
+    <tbody>
+      <tr><td><b>โมดูลนี้ทำอะไร</b></td><td>งานนี้มีไว้ทำไม ใครเกี่ยวข้องบ้าง</td></tr>
+      <tr><td><b>ภาพรวมการทำงาน</b></td><td>ข้อมูลไหลจากไหนไปไหน มีกี่ขั้น</td></tr>
+      <tr><td><b>ต้องเตรียมอะไรก่อนใช้งาน</b></td><td>ถ้าไม่ครบแล้วจะใช้ไม่ได้ มีอะไรบ้าง</td></tr>
+      <tr><td><b>ขั้นตอนการใช้งาน</b></td><td>เข้าเมนูไหน กดอะไร ตามลำดับ</td></tr>
+      <tr><td><b>ผลลัพธ์ที่ได้</b></td><td>ทำครบแล้วได้อะไรออกมา</td></tr>
+      <tr><td><b>ตัวอย่างการใช้งานจริง</b></td><td>สถานการณ์จริงทำอย่างไรตั้งแต่ต้นจนจบ</td></tr>
+      <tr><td><b>ปัญหาที่พบบ่อยและวิธีแก้</b></td><td>เจออาการแบบนี้ ให้ไปดูตรงไหน</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <b class="note__label">สัญลักษณ์ที่ใช้</b>
+    <p><span class="menuname">แบบนี้</span> คือชื่อเมนูบนหน้าจอ ·
+       กล่อง<b style="color:var(--green)">สีเขียว</b>คือตัวอย่างการใช้งานจริง ·
+       กล่อง<b style="color:var(--amber)">สีเหลือง</b>คือข้อควรระวัง ·
+       กล่อง<b style="color:var(--blue)">สีฟ้า</b>คือผลลัพธ์ที่ได้</p>
+  </div>
+
+  <div class="note note--tip">
+    <b class="note__label">สำหรับทีมพัฒนาและทีมทดสอบระบบ</b>
+    <p>ท้ายหน้าของทุกโมดูลมีลิงก์ไปยัง <b>ภาคผนวกเชิงเทคนิค</b>
+       ซึ่งอธิบายโครงสร้างข้อมูล การเชื่อมต่อ และรายละเอียดสำหรับการพัฒนาและทดสอบ
+       — แยกไว้ต่างหากเพื่อไม่ให้รบกวนผู้ใช้งานทั่วไป</p>
+  </div>
+
+  <div class="footer">
+    <span>HA.OS — คู่มือการใช้งานรายโมดูล</span>
+    <span>ตัวอย่างอ้างอิงจากข้อมูลในระบบ Demo</span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

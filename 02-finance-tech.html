@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02 · การเงินผู้ป่วยนอก / ผู้ป่วยใน — HA.OS Module Flow</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="m2">
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <p class="crumb"><a href="index.html">หน้าแรก</a> › HA.OS หลัก › 02 การเงินผู้ป่วยนอก/ใน</p>
+
+  <div class="page-head">
+    <h1>02 · การเงินผู้ป่วยนอก / ผู้ป่วยใน</h1>
+    <p>โมดูล “งานการเงิน” (เมนู 20-21) รับผิดชอบตั้งแต่การรวบรวมค่ารักษาที่เกิดขึ้นจากทุกจุดบริการ
+       ตรวจสอบสิทธิ คำนวณส่วนเบิกได้/เบิกไม่ได้ ออกใบเสร็จรับเงิน จนถึงการโอนค่าใช้จ่ายข้ามสิทธิ/ข้ามประเภทผู้ป่วย
+       และปิดรอบส่งบิล ทุกอย่างหมุนรอบตารางกลางเพียงตารางเดียวคือ <code>TB_FINANCES</code></p>
+  </div>
+
+  <div class="toc">
+    <b>หัวข้อในหน้านี้</b>
+    <ol>
+      <li><a href="#concept">แนวคิดหลัก · TB_FINANCES</a></li>
+      <li><a href="#money">คอลัมน์เงิน · เบิกได้/เบิกไม่ได้</a></li>
+      <li><a href="#setup">ขั้นที่ 0 — ตั้งค่าจุดเก็บเงิน</a></li>
+      <li><a href="#opd">Flow ผู้ป่วยนอก (OPD)</a></li>
+      <li><a href="#ipd">Flow ผู้ป่วยใน (IPD)</a></li>
+      <li><a href="#deposit">เงินมัดจำ</a></li>
+      <li><a href="#transfer">โอนค่าใช้จ่าย</a></li>
+      <li><a href="#adjust">ปรับยอดเบิกได้</a></li>
+      <li><a href="#cancel">ตรวจสอบ / ยกเลิกใบเสร็จ</a></li>
+      <li><a href="#round">รอบส่งบิล</a></li>
+      <li><a href="#status">Status Lifecycle</a></li>
+      <li><a href="#api">เมนู · เส้นทาง · API</a></li>
+      <li><a href="#pitfall">ข้อควรระวัง</a></li>
+    </ol>
+  </div>
+
+  <div class="roles">
+    <span class="role"><b>สิทธิ:</b> <code>OUTPATIENT_FINANCE</code>, <code>INPATIENT_FINANCE</code></span>
+    <span class="role"><b>WorkType:</b> <code>OFN</code> (นอก) · <code>IFN</code> (ใน) · <code>FNC</code> (รวม)</span>
+    <span class="role"><b>Root:</b> <code>/finance</code></span>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="concept">แนวคิดหลัก — ทุกอย่างคือแถวใน <code>TB_FINANCES</code></h2>
+
+  <p>ไม่ว่าจะเป็นยา, Lab, X-Ray, หัตถการ, ค่าห้อง, ค่าอาหาร หรือค่าแพทย์ — เมื่อถูกสั่งจากจุดใดก็ตาม
+     ระบบจะสร้าง <b>1 แถวใน <code>TB_FINANCES</code> ต่อ 1 รายการ</b> โดยมี</p>
+
+  <ul>
+    <li><code>ORDER_ID</code> — จับกลุ่มรายการที่สั่งพร้อมกัน (1 ใบสั่ง = 1 OrderId)</li>
+    <li><code>FINANCE_TYPE</code> — ประเภทค่าใช้จ่าย</li>
+    <li><code>OPDIPD</code> — <code>'O'</code> หรือ <code>'I'</code></li>
+    <li>Context ผู้ป่วย: OPD ผูก <code>SERVICE_ID / CLINIC_ID / OPD_RIGHT_ID</code> · IPD ผูก <code>ADMIT_ID / AN / ADMIT_RIGHT_ID</code></li>
+    <li><code>STATUS</code> — สถานะการดำเนินการ (ดู <a href="#status">Status Lifecycle</a>)</li>
+  </ul>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>FinanceType</th><th>ความหมาย</th><th>FinanceType</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td><code>D</code></td><td>ยา (Drug)</td><td><code>R</code></td><td>ค่าห้อง (Room)</td></tr>
+      <tr><td><code>L</code></td><td>Lab</td><td><code>F</code></td><td>ค่าอาหาร (Food)</td></tr>
+      <tr><td><code>X</code></td><td>X-Ray</td><td><code>O</code></td><td>ผ่าตัด (Operation)</td></tr>
+      <tr><td><code>S</code></td><td>ค่าบริการ (Service)</td><td><code>DF</code></td><td>ค่าแพทย์ (Doctor Fee)</td></tr>
+      <tr><td><code>M</code></td><td>เวชภัณฑ์</td><td><code>G</code></td><td>สินค้า (Goods)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>งานการเงินจึงไม่ได้ “สร้าง” ค่าใช้จ่ายเป็นหลัก แต่ทำหน้าที่ <b>รวบรวม → คำนวณ → เก็บเงิน → ปิดยอด</b></p>
+
+  <!-- ================================================================== -->
+  <h2 id="money">คอลัมน์เงินและความหมาย</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>คอลัมน์</th><th>ป้ายบนหน้าจอ</th><th>ความหมาย</th></tr></thead>
+    <tbody>
+      <tr><td><code>PRICE × QUANTITY</code></td><td>ราคา × จำนวน</td><td>ราคาต่อหน่วยและจำนวน</td></tr>
+      <tr><td><code>AMOUNT</code></td><td>รวมเงิน</td><td>ยอดเต็มของรายการ</td></tr>
+      <tr><td><code>CREDIT</code></td><td>เบิกได้ (Claim)</td><td>ส่วนที่สิทธิรับผิดชอบ (ตั้งจากอัตราตามสิทธิ)</td></tr>
+      <tr><td><code>CASH_RETURN</code></td><td>เบิกได้</td><td>ส่วนที่ต้นสังกัด/สิทธิจะคืนให้ — ผู้ป่วยสำรองจ่ายแล้วเบิกคืนได้</td></tr>
+      <tr><td><code>CASH_NOT_RETURN</code></td><td>เบิกไม่ได้</td><td>ส่วนที่ผู้ป่วยต้องจ่ายเอง</td></tr>
+      <tr><td><code>COPAY</code></td><td>ร่วมจ่าย</td><td>ส่วนร่วมจ่ายตามเงื่อนไขสิทธิ</td></tr>
+      <tr><td><code>DISCOUNT</code></td><td>ส่วนลด</td><td>ส่วนลดตามสูตร (<code>DISCOUNT_ID</code> / <code>DISCOUNT_FORMULA</code>)</td></tr>
+      <tr><td><code>PAYMENT</code></td><td>ชำระ</td><td>ยอดที่รับชำระจริงในใบเสร็จนี้</td></tr>
+      <tr><td><code>REMINBURSE</code></td><td>เรียกเก็บ</td><td>ยอดที่ยกไปตั้งเป็นลูกหนี้เพื่อไปเรียกเก็บ</td></tr>
+      <tr><td><code>COST</code></td><td>ต้นทุน</td><td>ต้นทุนสำหรับงานบัญชี/รายงาน</td></tr>
+      <tr><td><code>ROOT_PRICE / ROOT_CLAIM / ROOT_COPAY</code></td><td>—</td><td>ค่าตั้งต้นก่อนถูกปรับ ใช้ย้อนกลับตอนโอนสิทธิ/ยกเลิก</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note">
+    <b class="note__label">กติกาที่ใช้ในหน้าออกใบเสร็จ</b>
+    <p>ยอดที่กรอกในช่อง <code>payment</code> ถูกจำกัดไม่เกิน <code>cashReturn + cashNotReturn</code>
+       และเมื่อกรอกยอดบางส่วน ระบบจะไล่หัก <code>cashNotReturn</code> (ส่วนที่ผู้ป่วยจ่ายเอง) ก่อนเสมอ
+       ส่วนที่เหลือจึงไปลง <code>cashReturn</code></p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="setup">ขั้นที่ 0 — ตั้งค่าจุดเก็บเงิน (ทำก่อนเริ่มงานทุกกะ)</h2>
+
+  <ol class="steps">
+    <li>
+      <b>เข้าเมนู งานการเงิน › ตั้งค่าจุดเก็บเงิน</b>
+      <p><code>/finance/finance-dashboard-select</code> — เลือก <b>WorkPlace</b> ที่เป็นจุดรับเงินของตัวเอง
+         ค่านี้จะไปเป็น <code>WorkId</code> ในใบเสร็จและใช้แยกยอดรับเงินรายจุด/รายคน</p>
+    </li>
+    <li>
+      <b>เข้า Dashboard การเงิน</b>
+      <p><code>/finance/dashboard</code> — สรุปยอดรับเงินของจุดที่เลือก มุมมองมี 3 แบบ
+         (<code>constViewFinanceType</code>): <code>1</code> = เฉพาะของฉัน · <code>2</code> = ทั้งจุดเก็บเงิน · <code>3</code> = ทั้งวัน</p>
+    </li>
+    <li>
+      <b>(ถ้าใช้ระบบคิว) เรียกคิวรับชำระเงิน</b>
+      <p><code>/finance/call-queue-payment</code> — เรียกคิวผู้ป่วยขึ้นจอ แล้วกระโดดเข้าหน้าสรุปค่ารักษาของผู้ป่วยรายนั้น</p>
+    </li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="opd">Flow ผู้ป่วยนอก (OPD)</h2>
+
+  <ul class="flow">
+    <li><b>ค้นหาผู้ป่วย</b><span>HN / บัตร / สแกน</span></li>
+    <li><b>ตรวจสอบสิทธิ</b><span>สิทธิของ Visit</span></li>
+    <li><b>สรุปค่ารักษา</b><span>รวมทุกจุดบริการ</span></li>
+    <li><b>เพิ่มค่าใช้จ่าย</b><span>ที่ไม่ใช่ยา</span></li>
+    <li><b>ออกใบเสร็จ</b><span>รับชำระ</span></li>
+    <li class="is-done"><b>พิมพ์/จบ</b><span>ใบเสร็จ</span></li>
+  </ul>
+
+  <h3>2.1 ค้นหาข้อมูลผู้ป่วย</h3>
+  <p><code>/finance/opd/search-patient</code> · สิทธิ <code>OUTPATIENT_FINANCE_DASHBOARD</code></p>
+  <ul>
+    <li>ค้นด้วย HN / ชื่อ-สกุล / เลขบัตรประชาชน หรืออ่านบัตรผ่านเครื่องอ่านบัตร</li>
+    <li>เมื่อเลือกผู้ป่วยแล้ว ระบบจะ set patient context ไว้ใน state และแถบ subheader จะแสดงชื่อผู้ป่วยตลอด session</li>
+  </ul>
+
+  <h3>2.2 ตรวจสอบสิทธิ</h3>
+  <p><code>/finance/opd/rights</code></p>
+  <ol class="steps steps--blue">
+    <li><b>ดูสิทธิที่ผูกกับ Visit</b><p>อ่านจาก <code>TB_OPD_RIGHTS</code> ของ <code>SERVICE_ID</code> ปัจจุบัน</p></li>
+    <li><b>เทียบกับสิทธิหลักของผู้ป่วย</b><p><code>TB_PATIENT_RIGHTS</code> — ถ้าไม่ตรงกันต้องแก้ที่ Visit ก่อนออกใบเสร็จ</p></li>
+    <li><b>ตรวจสิทธิออนไลน์ สปสช. (ถ้าเปิดใช้)</b><p>ต้องมี Token ที่ตั้งไว้ในเมนูผู้ดูแลระบบ (ดู <a href="05-admin-tech.html">โมดูล 04</a>)</p></li>
+  </ol>
+  <div class="note note--warn">
+    <b class="note__label">ทำไมต้องตรวจสิทธิก่อนเสมอ</b>
+    <p>อัตรา <code>CREDIT</code> / <code>CASH_RETURN</code> / <code>CASH_NOT_RETURN</code> ของแต่ละรายการถูกคำนวณ
+       <b>ตอนสร้างแถวการเงิน</b> โดยอิงสิทธิ ณ ขณะนั้น ถ้าสิทธิผิดแล้วออกใบเสร็จไปแล้ว
+       ต้องยกเลิกใบเสร็จ + โอนสิทธิ (ดู <a href="#transfer">โอนค่าใช้จ่าย</a>) ซึ่งยุ่งกว่ามาก</p>
+  </div>
+
+  <h3>2.3 สรุปค่ารักษาพยาบาล</h3>
+  <p><code>/finance/opd/summary</code> · สิทธิ <code>OUTPATIENT_FINANCE_OPD_EXPENSE_SUMMARY</code></p>
+  <ul>
+    <li>แสดงทุกแถว <code>TB_FINANCES</code> ของ Visit จัดกลุ่มตาม <b>Bill Group</b> (<code>TBM_BILLGROUPS</code>)</li>
+    <li>แต่ละบรรทัดแสดง รวมเงิน / เบิกได้ / เบิกไม่ได้ / ส่วนลด / ค้างชำระ</li>
+    <li>ตรวจว่ารายการที่ยัง <span class="pill pill--gray">P</span> Prepared หรือ <span class="pill pill--blue">A</span> Accept
+        ครบหรือยังก่อนออกใบเสร็จ</li>
+  </ul>
+
+  <h3>2.4 บันทึกค่าใช้จ่ายที่ไม่ใช่ยา</h3>
+  <p><code>/finance/opd/non-drug</code> · สิทธิ <code>OUTPATIENT_FINANCE_OPD_NON_DRUG_CHARGE</code></p>
+  <ol class="steps steps--blue">
+    <li><b>เลือกประเภทค่าใช้จ่าย</b><p>Lab / X-Ray / Service / เวชภัณฑ์ — กำหนดโดย <code>financeType</code> ใน route data</p></li>
+    <li><b>ค้นรหัสค่าใช้จ่าย</b><p>เลือกจาก <code>TBM_EXPENSES</code> ระบบดึงราคา + อัตราตามสิทธิมาให้อัตโนมัติ</p></li>
+    <li><b>ระบุจำนวน + จุดที่ให้บริการ</b><p><code>FROM_WORK</code> = จุดที่บันทึก</p></li>
+    <li><b>บันทึก</b>
+      <p>สร้างแถว <code>TB_FINANCES</code> ใหม่ — <b>จุดนี้เองที่เป็นทางลัดสำหรับสร้างเคสทดสอบ</b>
+         เช่นการสั่ง Lab ธนาคารเลือด (ดู <a href="01-blood-bank-tech.html#simulate">โมดูล 01</a>)</p></li>
+  </ol>
+
+  <h3>2.5 บันทึกออกใบเสร็จ</h3>
+  <p><code>/finance/opd/create-bill</code> · สิทธิ <code>OUTPATIENT_FINANCE_OPD_BILLING</code>
+     · API <code>POST /api/Bill/CreateBill</code></p>
+
+  <ol class="steps">
+    <li>
+      <b>เลือกรายการที่จะออกใบเสร็จ</b>
+      <p>ระบบดึงรายการค้างชำระมาให้ ติ๊กเลือกได้รายบรรทัดหรือทั้ง Bill Group</p>
+    </li>
+    <li>
+      <b>ใส่ส่วนลด (ถ้ามี)</b>
+      <p>เลือกสูตรส่วนลด (<code>DiscountId</code>/<code>DiscountFormula</code>) ระบบตรวจว่าส่วนลดไม่เกินยอดคงเหลือ</p>
+    </li>
+    <li>
+      <b>ระบุวิธีชำระเงิน</b>
+      <p>รองรับหลายช่องทางพร้อมกันในใบเสร็จเดียว</p>
+      <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th>ช่องทาง</th><th>ฟิลด์ใน <code>BillInputModel</code></th></tr></thead>
+        <tbody>
+          <tr><td>เงินสด</td><td><code>Cash</code>, <code>Change</code> (เงินทอน)</td></tr>
+          <tr><td>บัตรเครดิต</td><td><code>CreditCard</code> (ประเภท), <code>CreditCardNo</code>, <code>CreditCardMoney</code>, <code>CreditCardBank</code></td></tr>
+          <tr><td>เช็ค</td><td><code>Cheque</code>, <code>ChequeNo</code>, <code>ChequeBank</code></td></tr>
+          <tr><td>QR / พร้อมเพย์</td><td><code>Qrcode</code>, <code>QrNo</code>, <code>QrBank</code></td></tr>
+          <tr><td>หักเงินมัดจำ</td><td><code>Deposit</code>, <code>DepositNo</code>, <code>DepositBank</code>, <code>Deposit2</code></td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p class="small">ถ้ามีเครื่อง EDC ต่อผ่าน EDC-Connect-Agent (WebSocket <code>edcUrl</code>) ระบบจะรับผลรูดบัตรกลับมาเติมให้อัตโนมัติ</p>
+    </li>
+    <li>
+      <b>ตรวจเลขที่ใบเสร็จ</b>
+      <p><code>BookNo</code> / <code>RunNo</code> มาจากเมนู <b>กำหนดลำดับเลขที่</b> (Running Number)
+         ระบบเรียก <code>GET /api/Bill/GetBillRunNoList</code> เพื่อเลือกเล่ม</p>
+    </li>
+    <li>
+      <b>บันทึก</b>
+      <p>ระบบสร้างหัวใบเสร็จ + รายละเอียด แล้วอัปเดต <code>TB_FINANCES</code> ของรายการที่ถูกออกใบเสร็จ
+         (<code>PAYMENT</code>, <code>DISCOUNT</code>, สถานะ) พร้อม <code>BillType = 1</code> (Cash)</p>
+    </li>
+    <li>
+      <b>พิมพ์ใบเสร็จ</b>
+      <p>พิมพ์ผ่าน Stimulsoft (<code>reportUrl</code>) — ถ้าตั้ง <code>forcePrintPreview = true</code> จะเปิด preview ก่อนเสมอ</p>
+    </li>
+  </ol>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>BillType</th><th>ความหมาย</th><th>ใช้ที่ไหน</th></tr></thead>
+    <tbody>
+      <tr><td><code>1</code> Cash</td><td>ใบเสร็จรับเงินสด</td><td>บันทึกออกใบเสร็จ (งานการเงิน)</td></tr>
+      <tr><td><code>2</code> Charged</td><td>ใบแจ้งหนี้ / ตั้งลูกหนี้</td><td>บันทึกข้อมูลเรียกเก็บ (<a href="03-reimbursement-tech.html">งานเรียกเก็บ</a>)</td></tr>
+      <tr><td><code>3</code> ReceivePayment</td><td>ใบรับชำระหนี้</td><td>บันทึกรับชำระเงินจากผู้จ่าย (สปสช./ต้นสังกัด)</td></tr>
+      <tr><td><code>4</code> Discount</td><td>ใบลดหนี้</td><td>ปรับลดยอดลูกหนี้</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="ipd">Flow ผู้ป่วยใน (IPD)</h2>
+
+  <p>ต่างจาก OPD ตรงที่ค่าใช้จ่ายทยอยเกิดตลอดวันที่นอนโรงพยาบาล และมี Batch Job คอยลงค่าอัตโนมัติ</p>
+
+  <ul class="flow">
+    <li><b>Admit</b><span>รับเข้า Ward</span></li>
+    <li><b>รับมัดจำ</b><span>(ถ้ามี)</span></li>
+    <li><b>ค่าใช้จ่ายสะสม</b><span>Batch + Manual</span></li>
+    <li><b>Discharge</b><span>จำหน่าย</span></li>
+    <li><b>สรุปค่ารักษา</b><span>ทั้ง Admit</span></li>
+    <li class="is-done"><b>ออกใบเสร็จ</b><span>+ ตั้งลูกหนี้</span></li>
+  </ul>
+
+  <h3>3.1 รายชื่อผู้ป่วย Admit / Discharge</h3>
+  <p><code>/finance/ipd/patient-admit-discharge</code> — จอทำงานหลักของการเงินผู้ป่วยใน
+     แสดงผู้ป่วยที่กำลังนอนและที่จำหน่ายแล้วรอเก็บเงิน</p>
+
+  <h3>3.2 ค่าใช้จ่ายที่ระบบลงให้อัตโนมัติ</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Job</th><th>ตารางเวลา (Cron)</th><th>ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><code>FinanceBedJob</code></td><td>ทุกวัน 00:05</td><td>ลงค่าห้อง/ค่าเตียงของวันนั้นให้ผู้ป่วยที่ยังนอนอยู่</td></tr>
+      <tr><td><code>FinanceDrugIPDJob</code></td><td>ทุกวัน 07:00</td><td>ลงค่ายาผู้ป่วยในตาม Drug Profile</td></tr>
+      <tr><td><code>AutoCreateBillJob</code></td><td>ทุกวัน 01:00</td><td>สร้างใบเรียกเก็บอัตโนมัติ (ดู <a href="03-reimbursement-tech.html">งานเรียกเก็บ</a>)</td></tr>
+      <tr><td><code>TransferFinanceBySpecialClaimIcdJob</code></td><td>ทุกวัน 20:00</td><td>โอนค่าใช้จ่ายตามเงื่อนไข ICD ที่ตั้งไว้ในเมนู “กำหนดการเรียกเก็บพิเศษ”</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">โปรเจกต์ <code>HAOS.Batch</code> (Quartz.NET) — cron ปรับได้ที่ section <code>CronBatch</code></p>
+
+  <h3>3.3 ประวัติการย้ายเตียง/ย้ายหอผู้ป่วย</h3>
+  <p><code>/finance/ipd/ipd-history-admit</code> — ใช้ตรวจสอบว่าค่าห้องถูกคิดตามหอผู้ป่วยที่ถูกต้องหรือไม่
+     (ค่าห้องคิดตาม Ward ที่นอนจริงในแต่ละคืน)</p>
+
+  <h3>3.4 สิทธิค้ำประกันผู้ป่วยใน</h3>
+  <p><code>/finance/ipd/right-ipd-guarantee-finance</code> — บันทึกหนังสือรับรองสิทธิ/ผู้ค้ำประกันสำหรับ Admit นั้น</p>
+
+  <h3>3.5 สรุปค่ารักษาและออกใบเสร็จ</h3>
+  <p><code>/finance/ipd/summary</code> → <code>/finance/ipd/create-bill</code></p>
+  <ol class="steps steps--blue">
+    <li><b>ตรวจว่าจำหน่าย (Discharge) แล้ว</b><p>ค่าห้องคืนสุดท้ายและค่ายาต้องลงครบก่อน</p></li>
+    <li><b>สรุปยอดทั้ง Admit</b><p>รวมทุก <code>TB_FINANCES</code> ที่มี <code>ADMIT_ID</code> เดียวกัน</p></li>
+    <li><b>แยกส่วนผู้ป่วยจ่าย / ส่วนตั้งลูกหนี้</b>
+      <p>ส่วน <code>cashNotReturn</code> → รับเงินและออกใบเสร็จ · ส่วน <code>cashReturn</code>/<code>Credit</code> → ยกไปงานเรียกเก็บ</p></li>
+    <li><b>หักเงินมัดจำที่รับไว้</b><p>ผ่านฟิลด์ <code>Deposit</code> ในใบเสร็จ</p></li>
+    <li><b>บันทึก + พิมพ์</b></li>
+  </ol>
+
+  <h3>3.6 Hybrid Invoice</h3>
+  <p><code>/finance/ipd/hybrid-invoice</code> — กรณีที่ 1 Admit ต้องแยกเรียกเก็บหลายสิทธิ/หลายผู้จ่าย
+     (เช่น สิทธิหลักจ่ายส่วนหนึ่ง + ผู้ป่วยจ่ายส่วนเกิน + ประกันจ่ายอีกส่วน) ระบบให้สร้าง Invoice หลายใบจาก Admit เดียว</p>
+
+  <!-- ================================================================== -->
+  <h2 id="deposit">เงินมัดจำ (Deposit / Earnest Money)</h2>
+
+  <p><code>/finance/opd/deposit-receiving-information</code> · <code>/finance/ipd/deposit-receiving-information</code></p>
+
+  <ol class="steps">
+    <li><b>รับเงินมัดจำ</b><p>บันทึกยอด + ออกใบรับเงินมัดจำ เก็บไว้เป็นเครดิตของผู้ป่วย</p></li>
+    <li><b>ดูรายการมัดจำคงเหลือ</b><p>หน้าจอนี้แสดงประวัติรับ/หัก/คืน</p></li>
+    <li><b>หักมัดจำตอนออกใบเสร็จ</b><p>ใส่ยอดในช่อง <code>Deposit</code> ระบบตัดยอดคงเหลือให้</p></li>
+    <li><b>คืนเงินมัดจำส่วนเกิน</b><p>ถ้ายอดค่ารักษาน้อยกว่ามัดจำ</p></li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="transfer">โอนค่าใช้จ่าย (Transfer)</h2>
+
+  <p><code>/finance/transfer/...</code> — ใช้แก้เคสที่ “ลงค่าใช้จ่ายไว้ผิดที่/ผิดสิทธิ” โดยไม่ต้องลบข้อมูล</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมนู</th><th>เส้นทาง</th><th>ใช้เมื่อ</th></tr></thead>
+    <tbody>
+      <tr><td>ผู้ป่วยนอกเป็นผู้ป่วยใน</td><td><code>transfer-opd-ipd</code></td><td>ผู้ป่วยมา OPD แล้วถูก Admit — ต้องย้ายค่าใช้จ่าย OPD ไปรวมกับ Admit</td></tr>
+      <tr><td>ยกเลิกการโอน OPD→IPD</td><td><code>transfer-ipd-opd</code> / <code>cancel-transfer-opd-ipd</code></td><td>โอนผิด ต้องดึงกลับเป็น OPD</td></tr>
+      <tr><td>ผู้ป่วยนอกระหว่างสิทธิ</td><td><code>transfer-opd-opd</code></td><td>สิทธิที่ใช้ตอนบันทึกผิด ต้องย้ายไปสิทธิที่ถูก</td></tr>
+      <tr><td>ยกเลิกโอน OPD ระหว่างสิทธิ</td><td><code>transfer-cancel-opd-opd</code></td><td>ย้อนกลับสิทธิเดิม</td></tr>
+      <tr><td>ผู้ป่วยในระหว่างสิทธิ</td><td><code>transfer-ipd-ipd</code></td><td>ย้ายสิทธิภายใน Admit เดียวกัน</td></tr>
+      <tr><td>ยกเลิกโอน IPD ระหว่างสิทธิ</td><td><code>transfer-cancel-ipd-ipd</code></td><td>ย้อนกลับ</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--warn">
+    <b class="note__label">การโอนคำนวณเงินใหม่</b>
+    <p>เมื่อโอนข้ามสิทธิ ระบบจะคำนวณ <code>CREDIT / CASH_RETURN / CASH_NOT_RETURN / COPAY</code> ใหม่ตามอัตราของสิทธิปลายทาง
+       โดยอ้างค่าตั้งต้นจาก <code>ROOT_PRICE / ROOT_CLAIM / ROOT_COPAY</code>
+       จึงต้อง <b>ยกเลิกใบเสร็จ/ใบเรียกเก็บที่ออกไปแล้วก่อน</b> มิฉะนั้นยอดจะไม่ตรงกับเอกสารที่พิมพ์ไป</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="adjust">บันทึกปรับยอดเบิกได้ค่ารักษาพยาบาล</h2>
+
+  <p><code>/finance/opd/adjust-claim-opd</code> · <code>/finance/ipd/adjust-claim-ipd</code></p>
+  <p>ใช้เมื่อยอดเบิกได้ที่ระบบคำนวณอัตโนมัติไม่ตรงกับเงื่อนไขจริง เช่น รายการที่ สปสช. กำหนดเพดานพิเศษ
+     หรือรายการที่ต้นสังกัดแจ้งให้ปรับ — เจ้าหน้าที่ปรับ <code>CREDIT</code> / <code>CASH_RETURN</code> / <code>CASH_NOT_RETURN</code> รายบรรทัด
+     พร้อมระบุเหตุผล ระบบเก็บ Log ไว้ตรวจสอบ</p>
+
+  <!-- ================================================================== -->
+  <h2 id="cancel">ตรวจสอบ / ยกเลิกใบเสร็จ</h2>
+
+  <p><code>/finance/cancel-bill</code> · สิทธิ <code>OUTPATIENT_FINANCE_CHECK_CANCEL_BILL</code>
+     · API <code>POST /api/Bill/CancelBill</code></p>
+
+  <ol class="steps">
+    <li><b>ค้นใบเสร็จ</b><p>ด้วยเลขที่ใบเสร็จ / HN / วันที่ (<code>GET /api/Bill/BillInquery</code>)</p></li>
+    <li><b>ดูรายละเอียด</b><p><code>GET /api/Bill/BillDetailsByBillId</code></p></li>
+    <li><b>ระบุเหตุผลการยกเลิก</b><p>บังคับกรอก <code>CancelReason</code></p></li>
+    <li><b>ยืนยันยกเลิก</b>
+      <p>ระบบคืนสถานะรายการ <code>TB_FINANCES</code> กลับเป็นค้างชำระ เพื่อให้ออกใบเสร็จใหม่ได้
+         และเลขที่ใบเสร็จเดิมจะถูกทำเครื่องหมายยกเลิก (ไม่นำเลขกลับมาใช้ซ้ำ)</p></li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="round">รอบส่งบิล</h2>
+
+  <p><code>/finance/bill-rounds</code> · Component <code>RoundSendBillsComponent</code>
+     · สิทธิ <code>OUTPATIENT_FINANCE_CHECK_ROUND_BILL</code></p>
+  <p>ใช้จัดกลุ่มใบเรียกเก็บเข้ารอบส่งเบิก (<code>TB_BILL_ROUNDS</code>) — เป็นสะพานเชื่อมไปยัง
+     <a href="03-reimbursement-tech.html">งานเรียกเก็บ</a> ซึ่งเป็นผู้ปิดรอบและส่งข้อมูลออกจริง</p>
+  <ul>
+    <li><code>GET /api/Bill/GetBillRoundList</code> — รอบทั้งหมด</li>
+    <li><code>GET /api/Bill/GetDefaultBillRoundWithOpdIpd</code> — รอบ default แยก OPD/IPD</li>
+    <li><code>POST /api/Bill/AddOrUpdateBillRound</code> · <code>POST /api/Bill/CancelBillRound</code></li>
+    <li><code>POST /api/Bill/MoveRelateInvoiceInPeriodToBillRound</code> — ย้ายใบเรียกเก็บที่เกี่ยวข้องเข้ารอบ</li>
+  </ul>
+
+  <!-- ================================================================== -->
+  <h2 id="status">Status Lifecycle ของ <code>TB_FINANCES.STATUS</code></h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ค่า</th><th>ชื่อ</th><th>ความหมายในบริบทงานการเงิน</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill pill--gray">W</span></td><td>WaitScreening</td><td>รอคัดกรอง (ยังไม่เข้ากระบวนการ)</td></tr>
+      <tr><td><span class="pill pill--gray">P</span></td><td>Prepared</td><td>สั่งแล้ว รอหน่วยบริการรับ</td></tr>
+      <tr><td><span class="pill pill--blue">A</span></td><td>Accept</td><td>หน่วยบริการรับงานแล้ว (จุดที่ยิงไป LIS/ห้องยา)</td></tr>
+      <tr><td><span class="pill pill--amber">I</span></td><td>Inprogress</td><td>กำลังดำเนินการ</td></tr>
+      <tr><td><span class="pill pill--blue">C</span></td><td>Checked</td><td>ตรวจสอบแล้ว</td></tr>
+      <tr><td><span class="pill pill--blue">D</span></td><td>Dispensed</td><td>จ่ายของ/ให้บริการแล้ว</td></tr>
+      <tr><td><span class="pill pill--purple">O</span></td><td>Payabled</td><td>พร้อมเรียกเก็บเงิน</td></tr>
+      <tr><td><span class="pill pill--purple">E</span></td><td>Printed</td><td>พิมพ์เอกสารแล้ว</td></tr>
+      <tr><td><span class="pill pill--green">S</span></td><td>Success</td><td>สำเร็จ</td></tr>
+      <tr><td><span class="pill pill--green">F</span></td><td>Final</td><td>ปิดรายการ (ออกใบเสร็จ/ปิดบัญชีแล้ว)</td></tr>
+      <tr><td><span class="pill pill--red">R</span></td><td>Reject</td><td>ปฏิเสธ</td></tr>
+      <tr><td><span class="pill pill--red">X</span></td><td>Cancel</td><td>ยกเลิก</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">ค่าคงที่: <code>HAOS.Core/Const/Finance/constFinanceStatus.cs</code> (คลาส <code>mFinanceStatus</code>)</p>
+
+  <!-- ================================================================== -->
+  <h2 id="api">เมนู · เส้นทาง · API</h2>
+
+  <h3>แผนผังเมนู “20-21. งานการเงิน”</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมนู</th><th>เส้นทาง</th><th>สิทธิ</th></tr></thead>
+    <tbody>
+      <tr><td>ตั้งค่าจุดเก็บเงิน</td><td><code>/finance/finance-dashboard-select</code></td><td><code>OUTPATIENT_FINANCE_DASHBOARD</code></td></tr>
+      <tr><td>Dashboard</td><td><code>/finance/dashboard</code></td><td><code>OUTPATIENT_FINANCE_DASHBOARD</code></td></tr>
+      <tr><td>เรียกคิวรับชำระเงิน</td><td><code>/finance/call-queue-payment</code></td><td><code>OUTPATIENT_FINANCE_DASHBOARD</code></td></tr>
+      <tr><td colspan="3"><b>การเงินผู้ป่วยนอก</b></td></tr>
+      <tr><td>· ค้นหาข้อมูลผู้ป่วย</td><td><code>/finance/opd/search-patient</code></td><td><code>OUTPATIENT_FINANCE_DASHBOARD</code></td></tr>
+      <tr><td>· ตรวจสอบสิทธิ</td><td><code>/finance/opd/rights</code></td><td><code>OUTPATIENT_FINANCE_DASHBOARD</code></td></tr>
+      <tr><td>· สรุปค่ารักษาพยาบาล</td><td><code>/finance/opd/summary</code></td><td><code>OUTPATIENT_FINANCE_OPD_EXPENSE_SUMMARY</code></td></tr>
+      <tr><td>· บันทึกค่าใช้จ่ายที่ไม่ใช่ยา</td><td><code>/finance/opd/non-drug</code></td><td><code>OUTPATIENT_FINANCE_OPD_NON_DRUG_CHARGE</code></td></tr>
+      <tr><td>· บันทึกออกใบเสร็จ</td><td><code>/finance/opd/create-bill</code></td><td><code>OUTPATIENT_FINANCE_OPD_BILLING</code></td></tr>
+      <tr><td>· ปรับยอดเบิกได้</td><td><code>/finance/opd/adjust-claim-opd</code></td><td>—</td></tr>
+      <tr><td>· ข้อมูลการรับเงินมัดจำ</td><td><code>/finance/opd/deposit-receiving-information</code></td><td>—</td></tr>
+      <tr><td colspan="3"><b>การเงินผู้ป่วยใน</b></td></tr>
+      <tr><td>· ค้นหาข้อมูลผู้ป่วย</td><td><code>/finance/ipd/search-patient</code></td><td><code>INPATIENT_FINANCE_LOGIN</code></td></tr>
+      <tr><td>· ตรวจสอบสิทธิ</td><td><code>/finance/ipd/rights</code></td><td><code>INPATIENT_FINANCE_LOGIN</code></td></tr>
+      <tr><td>· สรุปค่ารักษาพยาบาล</td><td><code>/finance/ipd/summary</code></td><td><code>INPATIENT_FINANCE_LOGIN</code></td></tr>
+      <tr><td>· บันทึกค่าใช้จ่ายที่ไม่ใช่ยา</td><td><code>/finance/ipd/non-drug</code></td><td><code>INPATIENT_FINANCE_IPD_NON_DRUG_CHARGE</code></td></tr>
+      <tr><td>· บันทึกออกใบเสร็จ</td><td><code>/finance/ipd/create-bill</code></td><td><code>INPATIENT_FINANCE_IPD_EXPENSE_SUMMARY</code></td></tr>
+      <tr><td>· รายชื่อผู้ป่วย Admit / Discharge</td><td><code>/finance/ipd/patient-admit-discharge</code></td><td>—</td></tr>
+      <tr><td>· ประวัติย้ายเตียง/หอผู้ป่วย</td><td><code>/finance/ipd/ipd-history-admit</code></td><td>—</td></tr>
+      <tr><td colspan="3"><b>อื่น ๆ</b></td></tr>
+      <tr><td>โอนค่าใช้จ่าย (6 เมนูย่อย)</td><td><code>/finance/transfer/*</code></td><td>—</td></tr>
+      <tr><td>ตรวจสอบ/ยกเลิกใบเสร็จ</td><td><code>/finance/cancel-bill</code></td><td><code>OUTPATIENT_FINANCE_CHECK_CANCEL_BILL</code></td></tr>
+      <tr><td>รอบส่งบิล</td><td><code>/finance/bill-rounds</code></td><td><code>OUTPATIENT_FINANCE_CHECK_ROUND_BILL</code></td></tr>
+      <tr><td>รหัสหลัก</td><td><code>/finance/inpatientfinance/master-code</code></td><td><code>IT_ADMIN</code></td></tr>
+      <tr><td>รายงาน</td><td><code>/finance/inpatientfinance/export-report</code></td><td>—</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>API หลัก (BillController)</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Method</th><th>Path</th><th>หน้าที่</th></tr></thead>
+    <tbody>
+      <tr><td>GET</td><td><code>/api/Bill/BillDashboardInquery</code></td><td>Dashboard ยอดรับเงิน</td></tr>
+      <tr><td>GET</td><td><code>/api/Bill/BillFinanceDetail</code></td><td>รายการค่าใช้จ่ายจัดกลุ่ม</td></tr>
+      <tr><td>GET</td><td><code>/api/Bill/BillMasterData</code></td><td>Master ประกอบหน้าจอ (ธนาคาร, บัตร ฯลฯ)</td></tr>
+      <tr><td>POST</td><td><code>/api/Bill/CreateBill</code></td><td><b>ออกใบเสร็จ</b></td></tr>
+      <tr><td>POST</td><td><code>/api/Bill/CreateInvoice</code></td><td><b>ออกใบเรียกเก็บ</b></td></tr>
+      <tr><td>POST</td><td><code>/api/Bill/EditBill</code></td><td>แก้ไขใบเสร็จ</td></tr>
+      <tr><td>POST</td><td><code>/api/Bill/CancelBill</code></td><td>ยกเลิกใบเสร็จ</td></tr>
+      <tr><td>GET</td><td><code>/api/Bill/BillInquery</code> · <code>BillById</code> · <code>BillDetailsByBillId</code></td><td>ค้น/ดูใบเสร็จ</td></tr>
+      <tr><td>GET</td><td><code>/api/Bill/GetBillRunNoList</code></td><td>เล่ม/เลขที่ใบเสร็จ</td></tr>
+      <tr><td>GET</td><td><code>/api/Bill/GetDiscountFormulaInquery</code> · <code>GetDiscount</code></td><td>สูตรส่วนลด</td></tr>
+      <tr><td>GET/POST</td><td><code>/api/Bill/…BillRound…</code></td><td>จัดการรอบส่งบิล</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="pitfall">ข้อควรระวัง</h2>
+
+  <div class="grid grid--2">
+    <div class="card">
+      <h4>1. ลำดับที่ห้ามสลับ</h4>
+      <p>ตรวจสิทธิ → บันทึกค่าใช้จ่าย → ออกใบเสร็จ ถ้าออกใบเสร็จก่อนแล้วค่อยรู้ว่าสิทธิผิด
+         ต้องยกเลิกใบเสร็จ + โอนสิทธิ + ออกใหม่ ครบทั้ง 3 ขั้น</p>
+    </div>
+    <div class="card">
+      <h4>2. รายการที่ยังไม่ Accept</h4>
+      <p>รายการที่สถานะยัง <span class="pill pill--gray">P</span> อาจยังไม่ครบยอด
+         ควรรอให้หน่วยบริการรับงานก่อนสรุปยอด</p>
+    </div>
+    <div class="card">
+      <h4>3. IPD ต้องรอ Batch</h4>
+      <p>ค่าห้องของคืนสุดท้ายลงตอน 00:05 และค่ายา IPD ลงตอน 07:00
+         การสรุปยอดก่อนเวลานั้นจะได้ยอดไม่ครบ</p>
+    </div>
+    <div class="card">
+      <h4>4. Running Number</h4>
+      <p>เลขที่ใบเสร็จมาจากเมนูผู้ดูแลระบบ ถ้าเล่มหมดจะออกใบเสร็จไม่ได้
+         ต้องเพิ่มเล่มใหม่ก่อน (ดู <a href="05-admin-tech.html">โมดูล 04</a>)</p>
+    </div>
+    <div class="card">
+      <h4>5. ส่วนลดผูกกับสูตร</h4>
+      <p>หน้าจอตรวจว่า <code>discount</code> ต้องไม่เกิน
+         <code>amount − (credit + cashReturn + cashNotReturn + paid)</code> — ถ้าเกินจะบันทึกไม่ได้</p>
+    </div>
+    <div class="card">
+      <h4>6. ยอดเรียกเก็บไม่ได้จบที่โมดูลนี้</h4>
+      <p>ส่วน <code>REMINBURSE</code> / <code>CREDIT</code> จะไปต่อที่งานเรียกเก็บ
+         ต้องปิดสิทธิ + ปิดบัญชีถึงจะเข้ารอบส่งเบิกได้</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><a href="01-blood-bank-tech.html">← 01 ธนาคารเลือด</a></span>
+    <span>ถัดไป: <a href="03-reimbursement-tech.html">03 บัญชีลูกหนี้/เรียกเก็บ →</a></span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 · งานสังคมสงเคราะห์ (Social Welfare) — HA.OS Module Flow</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="m4">
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <p class="crumb"><a href="index.html">หน้าแรก</a> › HA.OS หลัก › 04 งานสังคมสงเคราะห์</p>
+
+  <div class="page-head">
+    <h1>04 · งานสังคมสงเคราะห์ (Social Welfare)</h1>
+    <p>โมดูล “สังคมสงเคราะห์” (เมนู 23) จัดการ<b>ส่วนลด/การลดหย่อนค่ารักษา</b>
+       โดยออกใบวงเงินลดหย่อน 1 ใบต่อการมารับบริการ 1 ครั้ง แล้วนำส่วนลดไปตัดกับรายการค่าใช้จ่ายจริง
+       ยอดที่ถูกตัดถูกสรุปกลับขึ้นใบวงเงินโดย Trigger ที่ระดับฐานข้อมูล</p>
+  </div>
+
+  <div class="toc">
+    <b>หัวข้อในหน้านี้</b>
+    <ol>
+      <li><a href="#model">โครงสร้างข้อมูลหลัก</a></li>
+      <li><a href="#flow">เส้นทางข้อมูล 2 เส้นที่ต้องแยกให้ออก</a></li>
+      <li><a href="#menu">เมนู · เส้นทาง · สิทธิ</a></li>
+      <li><a href="#api">API หลัก</a></li>
+      <li><a href="#code">รหัสอ้างอิง</a></li>
+      <li><a href="#trigger">Trigger ที่เกี่ยวข้อง</a></li>
+      <li><a href="#pitfall">ข้อควรระวังและจุดที่มักพลาด</a></li>
+    </ol>
+  </div>
+
+  <div class="roles">
+    <span class="role"><b>สิทธิ:</b> <code>SOCIAL_WELFARE</code></span>
+    <span class="role"><b>Root:</b> <code>/social-welfare</code></span>
+    <span class="role"><b>Main module:</b> seq 23 · <code>SocialWelfare</code></span>
+  </div>
+
+  <h2 id="model">โครงสร้างข้อมูลหลัก</h2>
+
+  <p>ทุกอย่างในโมดูลนี้หมุนรอบตารางเดียวคือ <code>TB_DISCOUNTS</code></p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>คอลัมน์</th><th>ความหมาย</th><th>หมายเหตุ</th></tr></thead>
+    <tbody>
+      <tr><td><code>DiscountId</code></td><td>เลขที่ส่วนลด (PK)</td><td>Identity · แสดงบนหน้าจอเป็น “เลขที่ส่วนลด”</td></tr>
+      <tr><td><code>PatientId</code> · <code>Hn</code></td><td>ผู้ป่วย</td><td>เติมจาก store ตอน save</td></tr>
+      <tr><td><code>Opdipd</code></td><td><code>O</code> / <code>I</code></td><td>มาจาก route data <code>opdipd</code></td></tr>
+      <tr><td><code>ServiceId</code></td><td>ครั้งที่มารับบริการ (OPD)</td><td><b>บังคับ</b> · ล็อกหลังบันทึกครั้งแรก</td></tr>
+      <tr><td><code>AdmitId</code> · <code>An</code> · <code>RunAn</code> · <code>YearAn</code></td><td>การนอน รพ. (IPD)</td><td>AN ถูกเติมโดย Trigger <code>Tr_AfterInsertDiscount</code></td></tr>
+      <tr><td><code>DiscountType</code></td><td>ลดจากใคร</td><td><code>P/F/M/S/D</code> — ดูตารางรหัส</td></tr>
+      <tr><td><code>DiscountPtType</code></td><td>กลุ่มผู้ป่วย (Subtype)</td><td>FK → <code>TBM_DISCOUNT_PT_TYPES</code></td></tr>
+      <tr><td><code>PlaceType</code> · <code>WorkId</code> · <code>OtherPlace</code></td><td>หน่วยงานที่รับรอง</td><td><code>I</code> = ภายใน (ใช้ <code>WorkId</code>) · <code>O</code> = ภายนอก (ใช้ <code>OtherPlace</code>)</td></tr>
+      <tr><td><code>OldNew</code></td><td>ผู้ป่วยเก่า/ใหม่</td><td><code>O</code> / <code>N</code></td></tr>
+      <tr><td><code>Doctor</code> · <code>Diagnosis</code> · <code>Icd10</code></td><td>ข้อมูลประกอบ</td><td>ICD ใช้ code set <code>IT</code></td></tr>
+      <tr><td><code>Limit</code></td><td><b>วงเงินที่อนุมัติ</b></td><td>ผู้ใช้กรอกเอง</td></tr>
+      <tr><td><code>Total</code></td><td><b>ส่วนลดที่ถูกตัดไปแล้วจริง</b></td><td>ห้ามเขียนเอง — Trigger เป็นคนอัปเดต</td></tr>
+      <tr><td><code>Remark</code></td><td>เหตุผลการช่วยเหลือ</td><td>แสดงในตารางประวัติส่วนลด</td></tr>
+      <tr><td><code>UserCreated</code> · <code>UserModified</code> · <code>UserApproved</code></td><td>ผู้บันทึก / แก้ไข / รับทราบ</td><td>แสดงเป็น 3 ช่องท้ายฟอร์ม</td></tr>
+      <tr><td><code>ExpireDate</code></td><td>วันที่ยกเลิกใบ</td><td>ตั้งโดย <code>CancelBillDiscount</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p>ความสัมพันธ์ที่ต้องรู้:</p>
+  <ul class="prep">
+    <li><code>TB_OPD_SERVICES.DiscountId</code> และ <code>TB_ADMITS.DiscountId</code> —
+        ถูกเซ็ตย้อนกลับตอนสร้างใบส่วนลด ทำให้การมารับบริการครั้งนั้น “รู้จัก” ใบส่วนลดของตัวเอง</li>
+    <li><code>TB_FINANCES.DiscountId</code> + <code>TB_FINANCES.Discount</code> —
+        คือที่ที่ส่วนลด<b>ถูกตัดจริง</b> รายบรรทัดค่าใช้จ่าย</li>
+    <li><code>TBM_DISCOUNT_PT_TYPES</code> — master ของ Subtype ผู้ป่วย
+        (โหลดผ่าน <code>MasterDataService.GetDiscountPtTypesList()</code>)</li>
+  </ul>
+
+  <h2 id="flow">เส้นทางข้อมูล 2 เส้นที่ต้องแยกให้ออก</h2>
+
+  <div class="note note--warn">
+    <b class="note__label">นี่คือจุดที่ทำให้คนเข้าใจผิดมากที่สุดในโมดูลนี้</b>
+    <p><b>เส้นที่ 1 — ออกใบวงเงิน</b> เขียน <code>TB_DISCOUNTS</code> อย่างเดียว
+       (<code>Limit</code>, ประเภท, หน่วยงาน, เหตุผล) · <b>ไม่แตะ <code>TB_FINANCES</code> เลย</b>
+       ยอดของผู้ป่วยยังไม่เปลี่ยน</p>
+    <p><b>เส้นที่ 2 — ตัดส่วนลด</b> เขียน <code>TB_FINANCES.Discount</code> +
+       <code>TB_FINANCES.DiscountId</code> รายบรรทัด ·
+       จากนั้น Trigger <code>Tr_FinanceDiscountSummary</code> จะ
+       <code>UPDATE TB_DISCOUNTS.Total = SUM(TB_FINANCES.Discount)</code> ให้เอง</p>
+    <p>ดังนั้น <b>“ส่วนลดที่ใช้ไป” และ “คงเหลือ” ที่เห็นในตารางและ Dashboard
+       จะขยับก็ต่อเมื่อเส้นที่ 2 ทำงานแล้วเท่านั้น</b></p>
+  </div>
+
+  <h3>ที่มาของตัวเลข 3 ตัวบนหน้าจอ</h3>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ตัวเลขบนหน้าจอ</th><th>มาจาก</th></tr></thead>
+    <tbody>
+      <tr><td>วงเงินส่วนลด</td><td><code>TB_DISCOUNTS.Limit</code></td></tr>
+      <tr><td>ส่วนลดที่ใช้ไป (ตารางและ Dashboard)</td><td><code>TB_DISCOUNTS.Total</code> — Trigger อัปเดต</td></tr>
+      <tr><td>วงเงินคงเหลือ (ตารางและ Dashboard)</td><td>คำนวณใน mapper: <code>(Limit ?? 0) - (Total ?? 0)</code></td></tr>
+      <tr><td>แถบสรุปท้ายฟอร์ม (จำนวนเงิน · เครดิต · เบิกได้ · เบิกไม่ได้ · ส่วนลด · ชำระแล้ว · เรียกเก็บแล้ว)</td>
+          <td>คำนวณสดใน <code>GetSocialWelfareDiscountDetail</code> จาก
+              <code>SUM</code> ของ <code>TB_FINANCES</code> ที่ <code>DiscountId</code> ตรงกัน</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="note note--warn">
+    <b class="note__label">ความไม่สอดคล้องที่ควรรู้</b>
+    <p><code>GetSocialWelfareDiscountDetail</code> คำนวณ <code>DiscountUsed</code> จาก
+       <code>SUM(TB_FINANCES.Discount)</code> แต่<b>ไม่ได้คำนวณ <code>RemainingDiscount</code></b>
+       ในขณะที่ mapper ของ <code>DiscountDetailDataModel</code> (ที่ตารางและ Dashboard ใช้)
+       คำนวณจาก <code>Limit - Total</code></p>
+    <p>ผลคือช่อง “วงเงินส่วนลดคงเหลือ” บนฟอร์มแก้ไขใบส่วนลดจะแสดง 0 เสมอ
+       ส่วนคอลัมน์คงเหลือในตารางด้านล่างแสดงค่าถูก · ค่าที่เชื่อถือได้คือค่าในตาราง</p>
+  </div>
+
+  <h2 id="menu">เมนู · เส้นทาง · สิทธิ</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เมนู</th><th>Route</th><th>Component / สิทธิ</th></tr></thead>
+    <tbody>
+      <tr><td>Dashboard</td><td><code>/social-welfare/dashboard</code></td>
+          <td><code>SocialWelfareDashboardComponent</code> · <code>SOCIAL_WELFARE_DASHBOARD</code></td></tr>
+      <tr><td>ลงบันทึกส่วนลดผู้ป่วยนอก</td><td><code>/social-welfare/opd-discount</code></td>
+          <td><code>SocialWelfareOpdDiscountComponent</code> · <code>SOCIAL_WELFARE_OPD_DISCOUNT_HISTORY</code></td></tr>
+      <tr><td>— ฟอร์มเพิ่ม/แก้</td><td><code>…/opd-discount/add-opd-discount/:discountid?</code></td>
+          <td><code>include-social-welfare-opd-discount-add</code></td></tr>
+      <tr><td>ลงบันทึกส่วนลดผู้ป่วยใน</td><td><code>/social-welfare/ipd-discount</code></td>
+          <td><code>SocialWelfareIpdDiscountComponent</code> · <code>SOCIAL_WELFARE_IPD_DISCOUNT_HISTORY</code></td></tr>
+      <tr><td>— ฟอร์มเพิ่ม/แก้</td><td><code>…/ipd-discount/add-ipd-discount/:discountid?</code></td>
+          <td><code>include-social-welfare-ipd-discount-add</code></td></tr>
+      <tr><td>บันทึกส่วนลดค่ารักษาฯ ผู้ป่วยนอก / ใน</td>
+          <td><code>/social-welfare/opd-discount-finance</code><br><code>/social-welfare/ipd-discount-finance</code></td>
+          <td><code>include-finance-adjust-claim</code> (<code>DiscountOnly=false</code>)</td></tr>
+      <tr><td>ยกเลิกส่วนลด</td><td><code>/social-welfare/cancel-discount</code></td>
+          <td><code>SocialWelfareCancelDiscountComponent</code></td></tr>
+      <tr><td>บันทึกค่าใช้จ่ายที่ไม่ใช่ยา OPD / IPD</td>
+          <td><code>/social-welfare/non-drug-opd</code><br><code>/social-welfare/non-drug-ipd</code></td>
+          <td><code>include-form-finance-non-drug</code> · <code>workType=IFN</code>, <code>financeType=Operation</code></td></tr>
+      <tr><td>สรุปค่าใช้จ่ายผู้ป่วยนอก / ใน</td>
+          <td><code>/social-welfare/opd-right-conclude</code><br><code>/social-welfare/ipd-right-conclude</code></td>
+          <td>ใช้ component ร่วมกับงานเรียกเก็บ</td></tr>
+      <tr><td>ข้อมูลประวัติผู้ป่วย</td><td><code>/social-welfare/register-histories</code></td>
+          <td><code>include-registration-history</code> (<code>hideVisit=true</code>)</td></tr>
+      <tr><td>ประวัติการมารับบริการ</td><td><code>/social-welfare/ad-search-patient</code></td>
+          <td><code>SocialWelfareSearchPatientComponent</code></td></tr>
+      <tr><td>ค้นหาผู้ป่วย</td><td><code>/social-welfare/search-patient</code></td>
+          <td><code>SocialSearchPatientComponent</code></td></tr>
+      <tr><td>รหัสหลัก</td><td><code>/social-welfare/socialwelfare/master-code</code></td>
+          <td><code>SOCIAL_WELFARE_MASTER_DATA</code></td></tr>
+      <tr><td>รายงาน</td><td><code>/social-welfare/socialwelfare/export-report</code></td>
+          <td><code>ExportReportComponent</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="small">ที่มา: <code>views/social-welfare/social-welfare.routing.ts</code> และ
+     <code>core/_config/menu.config.ts</code> → <code>item_social_welfare</code></p>
+
+  <h2 id="api">API หลัก</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Endpoint</th><th>ใช้ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET /api/Finance/GetSocialWelfareDashboard</code></td>
+          <td>รายชื่อผู้ป่วยบน Dashboard · กรองด้วย <code>Date</code>, <code>DiscountType</code>,
+              <code>WorkId</code>, <code>RightId</code>, <code>Search</code> (All/O/I)</td></tr>
+      <tr><td><code>GET /api/Finance/GetSocialWelfareDashboardHeader</code></td>
+          <td>ตัวเลข 3 การ์ดด้านบน (ทั้งหมด / OPD / IPD)</td></tr>
+      <tr><td><code>GET /api/Finance/GetDiscountInquiry</code></td>
+          <td>ตารางประวัติส่วนลดของผู้ป่วย (ทุกใบ ไม่กรองตาม Service/Admit)</td></tr>
+      <tr><td><code>GET /api/Finance/GetSocialWelfareDiscountDetail</code></td>
+          <td>อ่านใบส่วนลด 1 ใบ + ยอดสรุปจาก <code>TB_FINANCES</code></td></tr>
+      <tr><td><code>POST /api/Finance/AddOrUpdateDiscount</code></td>
+          <td>สร้าง/แก้ใบส่วนลด · ตอนสร้างจะเซ็ต
+              <code>TB_OPD_SERVICES.DiscountId</code> หรือ <code>TB_ADMITS.DiscountId</code> ให้ด้วย</td></tr>
+      <tr><td><code>POST /api/Discount/RequestDiscountToday</code></td>
+          <td>ปุ่ม “ขอเลขที่ส่วนลด” — สร้างแถวเปล่าใน <code>TB_DISCOUNTS</code> ในทรานแซกชันเดียว</td></tr>
+      <tr><td><code>GET /api/Discount/GetDiscountById</code> ·
+              <code>GetDiscountList</code></td>
+          <td>Dropdown เลือกเลขที่ส่วนลดในหน้าตัดส่วนลด</td></tr>
+      <tr><td><code>POST /api/Bill/AddSocialWelfareDiscountBill</code></td>
+          <td>เส้นทางส่วนลดยาที่ออกเป็นบิล (ใช้จากฝั่งห้องยา)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2 id="code">รหัสอ้างอิง</h2>
+
+  <h3>DiscountType — ลดจากใคร</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Code</th><th>ชื่อบนหน้าจอ</th></tr></thead>
+    <tbody>
+      <tr><td><code>P</code></td><td>P ลดจาก Package</td></tr>
+      <tr><td><code>F</code></td><td>F ลดจากเจ้าหน้าที่การเงิน</td></tr>
+      <tr><td><code>M</code></td><td>M ลดจากผู้บริหารอนุมัติ</td></tr>
+      <tr><td><code>S</code></td><td>S ลดจากนักสังคมสงเคราะห์</td></tr>
+      <tr><td><code>D</code></td><td>D ลดจากห้องยา</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">รายการนี้ <b>hard-code อยู่ในคอมโพเนนต์</b> ไม่ได้มาจาก master table ·
+     เมื่อเปิดจากห้องยา (<code>fromPharmarcy=true</code>) ตัวเลือกจะถูก filter เหลือเฉพาะ <code>D</code></p>
+
+  <h3>PlaceType / OldNew</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ฟิลด์</th><th>ค่า</th></tr></thead>
+    <tbody>
+      <tr><td><code>PlaceType</code></td><td><code>I</code> หน่วยงานภายใน รพ. · <code>O</code> หน่วยงานภายนอก รพ. (default = <code>I</code>)</td></tr>
+      <tr><td><code>OldNew</code></td><td><code>O</code> เก่า · <code>N</code> ใหม่</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2 id="trigger">Trigger ที่เกี่ยวข้อง</h2>
+
+  <p>อยู่ใน <code>Tr_FinanceAfterInsertedUpdatedDeleted</code> บน <code>TB_FINANCES</code>
+     แต่ละตัวเปิด/ปิดด้วยตัวแปร <code>@Tr_*</code> ที่หัวทริกเกอร์</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>#</th><th>Trigger</th><th>สถานะในสคริปต์</th><th>ทำอะไร</th></tr></thead>
+    <tbody>
+      <tr><td>14</td><td><code>Tr_FinanceDiscountSummary</code></td><td><b>Y</b></td>
+          <td><code>UPDATE TB_DISCOUNTS.Total = SUM(TB_FINANCES.Discount)</code>
+              ทุกครั้งที่ insert/update/delete แถวการเงินที่มี <code>DiscountId</code></td></tr>
+      <tr><td>15</td><td><code>Tr_LockDiscount</code></td><td><b>N</b> (ปิดอยู่)</td>
+          <td>ถ้าเปิด จะ <code>THROW 51000 'ส่วนลดเกินจำนวนวงเงินส่วนลด'</code>
+              เมื่อ <code>SUM(Discount) &gt; Limit</code> · <b>ตอนนี้ปิด แปลว่าระบบยอมให้ตัดเกินวงเงิน</b></td></tr>
+      <tr><td>16</td><td><code>Tr_LockExpensesNotDiscount</code></td><td><b>Y</b></td>
+          <td>บล็อกการลดรายการที่ <code>TBM_EXPENSES.NotDiscountFlag</code> ไม่เป็น null ·
+              <code>THROW 51000 '&lt;ชื่อรายการ&gt; ห้ามใช้ส่วนลด'</code></td></tr>
+      <tr><td>—</td><td><code>Tr_AfterInsertDiscount</code> (บน <code>TB_DISCOUNTS</code>)</td><td>—</td>
+          <td>เคส IPD: เซ็ต <code>TB_ADMITS.DiscountId</code> และย้อนเติม
+              <code>An/RunAn/YearAn</code> ลงใบส่วนลด</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h2 id="pitfall">ข้อควรระวังและจุดที่มักพลาด</h2>
+
+  <div class="faq">
+    <div>
+      <h4><code>ServiceId</code> บังคับ และล็อกหลังบันทึก</h4>
+      <p><code>Isvalid()</code> ตรวจเฉพาะ <code>ServiceId</code> ตัวเดียว —
+         ฟิลด์อื่นทั้งหมด (รวมวงเงิน ประเภท และ Subtype) <b>ไม่บังคับ</b>
+         บันทึกใบเปล่าที่มีแต่ ServiceId ได้ · และ dropdown ถูก
+         <code>[disabled]="discountDetail.discountId"</code> หลังมีเลขแล้ว</p>
+    </div>
+    <div>
+      <h4>ปุ่ม “ขอเลขที่ส่วนลด” สร้างแถวจริงทันที</h4>
+      <p><code>RequestDiscountToday</code> insert <code>TB_DISCOUNTS</code> และ commit เลย
+         ถ้าผู้ใช้กดแล้วปิดหน้าไป จะเหลือใบส่วนลดเปล่าค้างในระบบ
+         (ไม่มีวงเงิน ไม่มีประเภท) ซึ่งจะไปโผล่ในตารางประวัติส่วนลด</p>
+    </div>
+    <div>
+      <h4>ใบส่วนลดไม่ถูกกรองตามครั้งที่มารับบริการ</h4>
+      <p><code>GetDiscountInquiry</code> กรองแค่ <code>PatientId</code> + <code>Opdipd</code>
+         (เงื่อนไข <code>ServiceId</code>/<code>AdmitId</code> ถูก comment ทิ้งไว้ในโค้ด)
+         ตารางประวัติส่วนลดจึงแสดงใบของ<b>ทุกครั้งที่มา</b> ไม่ใช่เฉพาะครั้งนี้</p>
+    </div>
+    <div>
+      <h4>Dashboard กรองด้วยวันที่บันทึก ไม่ใช่วันที่มารับบริการ</h4>
+      <p>เงื่อนไขคือ <code>DateCreated.Date == input.Date</code>
+         <b>หรือ</b> <code>DateModified.Date == input.Date</code>
+         ใบที่ถูกแก้ไขวันนี้จึงโผล่ในวันนี้ด้วย แม้จะเปิดไว้ตั้งแต่เดือนก่อน</p>
+    </div>
+    <div>
+      <h4>วันที่อนุมัติแก้ไม่ได้จริง</h4>
+      <p><code>nz-date-picker</code> ถูกตั้ง <code>[nzDisabledDate]="true"</code>
+         และ <code>dateApproved</code> ถูกเซ็ตเป็น <code>new Date()</code> ทุกครั้งที่โหลดผู้ป่วย
+         · ทั้ง date-picker และ time-picker bind ไปที่ฟิลด์เดียวกัน</p>
+    </div>
+    <div>
+      <h4>ยกเลิกส่วนลด ≠ ลบใบส่วนลด</h4>
+      <p>หน้า <b>ยกเลิกส่วนลด</b> ลบค่า <code>Discount</code> ออกจากแถว <code>TB_FINANCES</code>
+         Trigger จะลด <code>Total</code> ตามให้เอง · ส่วน <code>CancelBillDiscount</code>
+         (เส้นทางบิลยา) เป็นคนละเรื่อง — มันเซ็ต <code>ExpireDate</code> และ cancel ทั้งบิล</p>
+    </div>
+    <div>
+      <h4>การ Map ตอน update ทับทุกฟิลด์</h4>
+      <p><code>AddOrUpdateDiscount</code> กรณี update ใช้
+         <code>_mapper.Map&lt;SocialWelfareDiscountInputModel, TbDiscounts&gt;(input, TbDiscount)</code>
+         ตรง ๆ · ถ้า client ส่ง payload ไม่ครบ ฟิลด์ที่หายจะถูกทับเป็น null
+         — ให้ส่งทั้ง object ที่โหลดมาเสมอ</p>
+    </div>
+  </div>
+
+  <p class="annex">กลับไปหน้าสำหรับผู้ใช้งาน:
+     <a href="04-social-welfare.html">งานสังคมสงเคราะห์ — คู่มือการใช้งาน</a></p>
+
+  <div class="footer">
+    <span><a href="03-reimbursement-tech.html">← 03 บัญชีลูกหนี้/เรียกเก็บ</a></span>
+    <span>ถัดไป: <a href="05-admin-tech.html">05 งานผู้ดูแลระบบ →</a></span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>

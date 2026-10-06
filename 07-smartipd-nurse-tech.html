@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>07 · Smart IPD — Nurse Module — HA.OS Module Flow</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body class="m7">
+<div class="layout">
+<aside class="sidebar" id="nav"></aside>
+<main class="main">
+
+  <p class="crumb"><a href="index.html">หน้าแรก</a> › Smart IPD › 07 Nurse Module</p>
+
+  <div class="page-head">
+    <h1>07 · Smart IPD — Nurse Module</h1>
+    <p>โมดูลพยาบาลใช้โครงหน้าจอเดียวกับแพทย์ แต่เมนูและแท็บถูกสลับตาม role — พยาบาลจะได้เมนูชุด
+       Nursing Document, Nursing Record, Order Plan, Nurse Schedule และ eMAR แทน
+       จุดเด่นของโมดูลนี้คือการทำงานเป็น “กะ” — เปิดกะด้วย Work List/Daily Overview
+       แล้วเดินงานตามตารางเวลาที่ Order Plan สร้างให้</p>
+  </div>
+
+  <div class="toc">
+    <b>หัวข้อในหน้านี้</b>
+    <ol>
+      <li><a href="#diff">ความต่างจากมุมมองแพทย์</a></li>
+      <li><a href="#shift">ขั้นที่ 1 — เริ่มกะ</a></li>
+      <li><a href="#admit">ขั้นที่ 2 — บันทึกรับผู้ป่วยใน</a></li>
+      <li><a href="#vital">ขั้นที่ 3 — Vital Sign &amp; Observation Chart</a></li>
+      <li><a href="#plan">ขั้นที่ 4 — Order Plan</a></li>
+      <li><a href="#emar">ขั้นที่ 5 — eMAR (การให้ยา)</a></li>
+      <li><a href="#record">ขั้นที่ 6 — Nursing Record</a></li>
+      <li><a href="#doc">ขั้นที่ 7 — Nursing Document</a></li>
+      <li><a href="#io">Intake / Output &amp; ฟอร์มปรอท</a></li>
+      <li><a href="#other">งานอื่นของพยาบาล</a></li>
+      <li><a href="#perm">Permission ที่ใช้</a></li>
+      <li><a href="#pitfall">ข้อควรระวัง</a></li>
+    </ol>
+  </div>
+
+  <div class="roles">
+    <span class="role"><b>Role:</b> <code>Nurse</code> (HA.OS UserType = <code>N</code>)</span>
+    <span class="role"><b>Landing:</b> <code>/patients</code></span>
+    <span class="role"><b>Guard:</b> <code>wardSelectionGuard</code> + <code>PermissionGuard</code></span>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="diff">ความต่างจากมุมมองแพทย์</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>รายการ</th><th>แพทย์</th><th>พยาบาล</th></tr></thead>
+    <tbody>
+      <tr><td>หน้ารายชื่อผู้ป่วย</td><td><code>/patients/doctor-patients</code></td><td><code>/patients</code></td></tr>
+      <tr><td>แท็บในหน้า Admission</td><td>Order Summary · <b>Problem List</b> · Laboratory · Imaging</td><td>Order Summary · Laboratory · Imaging <span class="small">(Problem List ถูกซ่อน)</span></td></tr>
+      <tr><td>เมนู “จัดการข้อมูล”</td><td>ย้าย Ward/เตียง · Assign แพทย์ · Note · Med Reconcile</td><td>Nursing Document · Nursing Record · Order Plan · Nurse Schedule · eMAR</td></tr>
+      <tr><td>Order Note Modal</td><td><code>DoctorOrderNoteModalComponent</code></td><td><code>NurseOrderNoteModalComponent</code></td></tr>
+      <tr><td>Progress Note</td><td>เขียนบันทึกแพทย์ได้</td><td>เขียน Nursing Progress Note · แพทย์ดูได้อย่างเดียว</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="small">โค้ดที่ควบคุม: getter <code>isNurse</code> / <code>isDoctor</code> ใน
+     <code>patient-admission.component.ts</code> และ <code>roleRedirectGuard</code></p>
+
+  <!-- ================================================================== -->
+  <h2 id="shift">ขั้นที่ 1 — เริ่มกะ</h2>
+
+  <ol class="steps">
+    <li>
+      <b>Login + เลือก Ward</b>
+      <p><code>/auth/login</code> → <code>/auth/ward-selection</code> — ระบบจำ Ward ที่เลือกล่าสุดไว้ให้</p>
+    </li>
+    <li>
+      <b>ดูภาพรวมงานประจำวัน</b>
+      <p><code>/patients/daily-overview</code> · <code>WardDailyOverviewComponent</code>
+         · API <code>GET /api/OrderPlan/ward-daily-overview</code></p>
+      <p>สรุปงานทั้ง Ward ในวันนั้น — กิจกรรมที่ต้องทำ, จำนวนที่ทำแล้ว/ค้าง แยกตามช่วงเวลา</p>
+    </li>
+    <li>
+      <b>เปิด Work List</b>
+      <p><code>/patients/work-list</code> — รายการงานที่ต้องทำ รวมข้ามผู้ป่วย เรียงตามเวลา</p>
+    </li>
+    <li>
+      <b>เข้าผู้ป่วยรายคน</b>
+      <p>จาก <code>/patients</code> หรือสแกน QR ที่ป้ายข้อมือ (<code>/patients/scan-qr</code>)
+         → เข้าหน้า <code>/patients/admission/:an</code></p>
+    </li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="admit">ขั้นที่ 2 — บันทึกรับผู้ป่วยใน (IPD Admission Record)</h2>
+
+  <p><code>/patients/admission/:an/ipd-admission-record</code> ·
+     Permission <code>NURSE</code> + <code>NURSE_VIEW_PHYSICAL_EXAMINATION</code></p>
+  <p class="small">(มีอีกหน้าหนึ่งชื่อ <code>…/physical-examination</code> ที่ใช้ชื่อหัวข้อเดียวกัน)</p>
+
+  <p>เป็นแบบฟอร์มรับใหม่ที่ยาวและมีฟิลด์แบบมีเงื่อนไข (conditional field) จำนวนมาก
+     ระบบจึงออกแบบให้ config แยกไว้ที่ <code>admission-record-conditional-fields.config.ts</code></p>
+
+  <h3>ตัวอย่างฟิลด์แบบมีเงื่อนไข</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>คำถาม</th><th>ตัวเลือก</th><th>ฟิลด์ที่เปิดตามมา</th></tr></thead>
+    <tbody>
+      <tr><td rowspan="2">รับผู้ป่วยจาก (<code>receiveFromCode</code>)</td><td><code>REFER</code></td><td><code>receiveFromHospital</code> — ระบุโรงพยาบาล (บังคับ)</td></tr>
+      <tr><td><code>OTHER</code></td><td><code>receiveFromOtherText</code> — ระบุ (บังคับ)</td></tr>
+      <tr><td>มาถึงหอผู้ป่วยโดย (<code>arriveByCode</code>)</td><td><code>SENDER</code></td><td><code>senderName</code> — ชื่อผู้นำส่ง (บังคับ)</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>ชุด Enum ที่ backend เปิดให้ดึง</h3>
+  <p><code>GET /api/IpdAdmissionRecord/enums/{enumType}</code> และ endpoint เฉพาะทาง เช่น</p>
+  <ul>
+    <li><code>allergy-category-codes</code> · <code>arrive-by-codes</code> · <code>chief-complaint-type-codes</code></li>
+    <li><code>contact-types</code> · <code>family-history-codes</code> · <code>gender-identity-codes</code></li>
+    <li><code>house-structure-codes</code> · <code>housing-type-codes</code> · <code>living-with-codes</code></li>
+    <li><code>job-duration-codes</code> · <code>occupation-type-codes</code></li>
+  </ul>
+
+  <div class="note note--warn">
+    <b class="note__label">ข้อควรทราบสำหรับผู้ดูแลระบบ</b>
+    <p>ค่า enum ในไฟล์ config ฝั่ง frontend ต้องตรงกับ enum ฝั่ง backend (<code>eIpdAdmissionRecord.cs</code> ของ HA.OS)
+       ถ้าฝั่งใดฝั่งหนึ่งเปลี่ยนชื่อค่า ฟิลด์เงื่อนไขจะไม่แสดง — ในไฟล์ config มีคำเตือนนี้กำกับไว้ชัดเจน</p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="vital">ขั้นที่ 3 — Vital Sign &amp; Observation Chart</h2>
+
+  <p><code>/patients/admission/:an/vital-signs</code> · <code>VitalSignsController</code></p>
+
+  <ol class="steps steps--blue">
+    <li><b>ดูค่าย้อนหลัง</b><p><code>GET /api/VitalSigns</code> · กราฟ <code>GET /api/VitalSigns/chart/{an}</code></p></li>
+    <li><b>บันทึกค่าใหม่</b><p><code>POST /api/VitalSigns</code> — BT, PR, RR, BP, SpO2, Pain Score ฯลฯ</p></li>
+    <li><b>แก้ไข / ลบ</b><p><code>PUT /api/VitalSigns/{recordId}</code> · <code>DELETE /api/VitalSigns/{recordId}</code></p></li>
+  </ol>
+
+  <!-- ================================================================== -->
+  <h2 id="plan">ขั้นที่ 4 — Order Plan (แผนการปฏิบัติ)</h2>
+
+  <p><code>/patients/admission/:an/order-plan</code> · Permission <code>NURSE</code> + <code>ORDER_PLAN</code>
+     · <code>OrderPlanController</code></p>
+
+  <p>Order Plan คือการแปลง Order ของแพทย์ให้กลายเป็น <b>กิจกรรมที่มีเวลา</b> (schedule)
+     ให้พยาบาลทำตาม — เป็นตัวป้อนข้อมูลให้ทั้ง Work List, Daily Overview และ eMAR</p>
+
+  <ol class="steps">
+    <li>
+      <b>ระบบสร้างตารางกิจกรรม</b>
+      <p>Job <code>GenerateOrderPlanScheduleJob</code> ฝั่ง HA.OS (รันเที่ยงคืน) สร้างตารางของวันถัดไป
+         · ดูตารางได้ที่ <code>GET /api/OrderPlan/schedules</code></p>
+    </li>
+    <li>
+      <b>กรองดูกิจกรรม</b>
+      <p><code>POST /api/OrderPlan/filter</code> — กรองตามช่วงเวลา/ประเภท/สถานะ</p>
+    </li>
+    <li>
+      <b>บันทึกการทำกิจกรรม</b>
+      <p><code>POST /api/OrderPlan/activities</code> — ระบุว่าทำแล้ว พร้อมเวลา/ผู้ทำ/หมายเหตุ</p>
+    </li>
+    <li>
+      <b>เพิ่มกิจกรรมนอกแผน</b>
+      <p><code>POST /api/OrderPlan/on-demand-activity</code> — งานที่เกิดขึ้นเฉพาะหน้า</p>
+    </li>
+    <li>
+      <b>ยืนยันด้วยพยาน (Witness)</b>
+      <p><code>POST /api/OrderPlan/verify-witness</code> — สำหรับกิจกรรมที่ต้องมีพยาบาลคนที่ 2 ยืนยัน
+         (เช่น ยา High Alert)</p>
+    </li>
+    <li>
+      <b>ตรวจเวลาชดเชย</b>
+      <p><code>GET /api/OrderPlan/{orderPlanId}/compensatory-time</code> — กรณีทำกิจกรรมช้ากว่ากำหนด</p>
+    </li>
+    <li>
+      <b>ลบกิจกรรม</b>
+      <p><code>DELETE /api/OrderPlan/activities/{activityId}</code></p>
+    </li>
+  </ol>
+
+  <h3>Nurse Schedule</h3>
+  <p><code>/patients/admission/:an/nurse-schedule</code> · Permission <code>NURSE_SCHEDULE</code>
+     — มุมมองตารางเวลาของผู้ป่วยรายคน</p>
+
+  <!-- ================================================================== -->
+  <h2 id="emar">ขั้นที่ 5 — eMAR (Electronic Medication Administration Record)</h2>
+
+  <p><code>/patients/admission/:an/emar</code> · Permission <code>NURSE</code> + <code>EMAR</code>
+     · <code>MedicationDispensingController</code></p>
+
+  <p>ตาราง eMAR แสดง <b>ยา × ช่วงเวลา</b> โดยแต่ละช่อง (slot) มีสถานะของตัวเอง</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>สถานะ slot</th><th>ความหมาย</th><th>การกระทำ</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill pill--gray">pending</span></td><td>ถึงเวลาแล้ว รอให้ยา</td><td>กดเพื่อเปิด modal ให้ยา / งดยา</td></tr>
+      <tr><td><span class="pill pill--red">overdue</span></td><td>เลยเวลาที่กำหนด</td><td>ยังให้ยาได้ แต่ถูกทำเครื่องหมายว่าเลยเวลา</td></tr>
+      <tr><td><span class="pill pill--green">given</span></td><td>ให้ยาแล้ว</td><td>บันทึกผู้ให้ + เวลา</td></tr>
+      <tr><td><span class="pill pill--amber">withheld</span></td><td>งดยา</td><td>ต้องระบุเหตุผล</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>ธงพิเศษที่ทับสถานะปกติ</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>ธง</th><th>ที่มา</th><th>ผลบนหน้าจอ</th></tr></thead>
+    <tbody>
+      <tr><td><span class="pill pill--purple">OFF</span></td><td>แพทย์สั่งหยุดยา (<code>TB_IPD_ORDER_NOTE_DETAILS</code>)</td>
+          <td>slot ที่ยัง pending/overdue จะแสดง badge OFF แทน — ห้ามให้ยา</td></tr>
+      <tr><td><span class="pill pill--amber">HOLD</span></td><td>แพทย์สั่งพักยา (<code>TB_IPD_ORDER_HOLD_LOGS</code>)</td>
+          <td>แสดง badge HOLD พร้อมเหตุผล</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>Flow การให้ยา 1 slot</h3>
+  <ol class="steps steps--green">
+    <li><b>เปิด eMAR ของผู้ป่วย</b><p><code>GET /api/MedicationDispensing/patients</code></p></li>
+    <li><b>กรองสถานะ</b><p>ชิปด้านบน: all / pending / given / withheld / off / hold พร้อมตัวนับ</p></li>
+    <li><b>ตรวจสอบ 5R ที่เตียง</b><p>ผู้ป่วยถูกคน (สแกน QR ได้) · ยาถูกตัว · ขนาดถูก · เวลาถูก · วิถีทางถูก</p></li>
+    <li>
+      <b>กดที่ slot</b>
+      <p>เปิด <code>emar-give-medication-modal</code> (ให้ยา) หรือ <code>emar-skip-medication-modal</code> (งดยา)</p>
+    </li>
+    <li>
+      <b>ยืนยัน</b>
+      <p><code>POST /api/MedicationDispensing/dispense</code> — บันทึกผู้ให้ยา เวลา และเหตุผลกรณีงดยา</p>
+    </li>
+  </ol>
+
+  <div class="note note--danger">
+    <b class="note__label">ยา OFF / HOLD</b>
+    <p>ถ้าเห็น badge OFF หรือ HOLD ให้หยุดและตรวจสอบกับแพทย์/เภสัชกรก่อน
+       ฝั่งเภสัชกรมีขั้นตอน “รับทราบ” (acknowledge) แยกต่างหาก
+       (<code>POST /api/PharmacistDispensing/acknowledge-off</code> / <code>acknowledge-hold</code>)
+       — ดู <a href="08-smartipd-pharmacist-tech.html">โมดูล 07</a></p>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="record">ขั้นที่ 6 — Nursing Record (แผนการพยาบาล)</h2>
+
+  <p><code>/patients/admission/:an/nursing-record</code> · Permission <code>NURSE</code> + <code>NURSING_RECORD</code>
+     · <code>NursingRecordController</code></p>
+
+  <p>ประกอบด้วย 2 ส่วนหลัก</p>
+
+  <h3>6.1 Care Plan (แผนการพยาบาล)</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>การกระทำ</th><th>API</th></tr></thead>
+    <tbody>
+      <tr><td>ดูรายการ</td><td><code>GET /api/NursingRecord/care-plans</code></td></tr>
+      <tr><td>ดูรายละเอียด</td><td><code>GET /api/NursingRecord/care-plans/{id}</code></td></tr>
+      <tr><td>สร้าง/แก้ไข</td><td><code>POST /api/NursingRecord/care-plans</code></td></tr>
+      <tr><td>ลบ</td><td><code>DELETE /api/NursingRecord/care-plans/{id}</code></td></tr>
+      <tr><td>ตัวเลือกสถานะ</td><td><code>GET /api/NursingRecord/care-plan-status-options</code></td></tr>
+      <tr><td>ตัวเลือกการประเมินผลลัพธ์</td><td><code>GET /api/NursingRecord/expected-outcome-evaluation-options</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>6.2 Nursing Progress Note</h3>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>หน้าจอ / การกระทำ</th><th>เส้นทาง · API</th></tr></thead>
+    <tbody>
+      <tr><td>บันทึกใหม่</td><td><code>admission/:an/nursing-record/progress-note/add</code> → <code>POST /api/NursingRecord/progress-notes</code></td></tr>
+      <tr><td>แก้ไข</td><td><code>…/progress-note/edit/:progressNoteId</code></td></tr>
+      <tr><td>ดูรายการ / รายละเอียด</td><td><code>GET /api/NursingRecord/progress-notes</code> · <code>…/{id}</code></td></tr>
+      <tr><td>ลบ</td><td><code>DELETE /api/NursingRecord/progress-notes/{id}</code></td></tr>
+      <tr><td>ตัวเลือกสถานะ / สรุป</td><td><code>GET …/progress-note-status-options</code> · <code>…/progress-note-summary-options</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>6.3 Focus Items</h3>
+  <p><code>FocusItemsController</code> — ประเด็นที่ต้องเฝ้าติดตาม
+     (<code>GET</code>, <code>POST</code>, <code>PUT /{id}</code>,
+      <code>POST /{id}/resolve</code>, <code>POST /{id}/cancel-resolve</code>, <code>DELETE /{id}</code>)</p>
+
+  <!-- ================================================================== -->
+  <h2 id="doc">ขั้นที่ 7 — Nursing Document</h2>
+
+  <p><code>/patients/admission/:an/nurse-document</code> · Permission <code>NURSE</code> + <code>NURSE_DOCUMENT</code>
+     · <code>NurseNotesController</code> (CRUD: <code>GET</code>, <code>GET /{id}</code>,
+      <code>POST</code>, <code>PUT /{id}</code>, <code>DELETE /{id}</code>)</p>
+  <p>ใช้เก็บเอกสาร/แบบฟอร์มการพยาบาลอื่น ๆ ที่ไม่ได้อยู่ในโครง Care Plan/Progress Note</p>
+
+  <!-- ================================================================== -->
+  <h2 id="io">Intake / Output &amp; ฟอร์มปรอท</h2>
+
+  <h3>Intake / Output</h3>
+  <p><code>IntakeOutputController</code> — มี master data ที่ตั้งค่าได้เอง</p>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>กลุ่ม</th><th>Endpoint</th></tr></thead>
+    <tbody>
+      <tr><td>Master Intake</td><td><code>GET/POST /api/IntakeOutput/master/intakes</code> · <code>GET/PUT/DELETE …/{id}</code> · <code>GET …/logs</code></td></tr>
+      <tr><td>Master Output</td><td><code>GET/POST /api/IntakeOutput/master/outputs</code> · <code>GET/PUT/DELETE …/{id}</code> · <code>GET …/logs</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>ฟอร์มปรอท (Report Form)</h3>
+  <p><code>/patients/admission/:an/report-form</code> · Permission <code>NURSE</code> + <code>REPORT_FORM</code>
+     · <code>ReportController</code> — พิมพ์กราฟ vital sign / บันทึกประจำวันตามแบบฟอร์มโรงพยาบาล</p>
+
+  <!-- ================================================================== -->
+  <h2 id="other">งานอื่นของพยาบาล</h2>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>งาน</th><th>เส้นทาง</th><th>หมายเหตุ</th></tr></thead>
+    <tbody>
+      <tr><td>ดู Order ของแพทย์</td><td><code>admission/:an/order</code> · <code>order-history</code></td><td>Order Summary + ประวัติ</td></tr>
+      <tr><td>Med Review</td><td><code>admission/:an/medication-review</code></td><td>ทบทวนรายการยาปัจจุบัน</td></tr>
+      <tr><td>บันทึกค่าใช้จ่าย</td><td><code>admission/:an/other-expenses</code></td><td>เวชภัณฑ์/บริการที่ใช้ที่ Ward → <code>TB_FINANCES</code></td></tr>
+      <tr><td>นัดหมาย</td><td><code>admission/:an/appointment</code></td><td>ทำนัดครั้งถัดไป</td></tr>
+      <tr><td>Nursing Progress Note (มุมแพทย์)</td><td><code>admission/:an/nursing-progress-note</code></td><td>แพทย์เปิดดูบันทึกพยาบาล</td></tr>
+      <tr><td>Med Reconcile</td><td><code>admission/:an/med-reconcile-admit</code> · <code>…-discharge</code></td><td>ร่วมกับแพทย์/เภสัชกร</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="perm">Permission ที่ใช้</h2>
+
+  <p>หน้าจอฝั่งพยาบาลถูกป้องกันด้วย <code>PermissionGuard</code> โดยระบุใน route data</p>
+
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>เส้นทาง</th><th>Permissions ที่ต้องมี</th></tr></thead>
+    <tbody>
+      <tr><td><code>admission/:an/nurse-document</code></td><td><code>NURSE</code>, <code>NURSE_DOCUMENT</code></td></tr>
+      <tr><td><code>admission/:an/nursing-record</code> และฟอร์ม Progress Note</td><td><code>NURSE</code>, <code>NURSING_RECORD</code></td></tr>
+      <tr><td><code>admission/:an/emar</code></td><td><code>NURSE</code>, <code>EMAR</code></td></tr>
+      <tr><td><code>admission/:an/order-plan</code></td><td><code>NURSE</code>, <code>ORDER_PLAN</code></td></tr>
+      <tr><td><code>admission/:an/nurse-schedule</code></td><td><code>NURSE</code>, <code>NURSE_SCHEDULE</code></td></tr>
+      <tr><td><code>admission/:an/report-form</code></td><td><code>NURSE</code>, <code>REPORT_FORM</code></td></tr>
+      <tr><td><code>admission/:an/ipd-admission-record</code></td><td><code>NURSE</code>, <code>NURSE_VIEW_PHYSICAL_EXAMINATION</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ================================================================== -->
+  <h2 id="pitfall">ข้อควรระวัง</h2>
+
+  <div class="grid grid--2">
+    <div class="card">
+      <h4>1. eMAR ไม่ได้บล็อกยา OFF/HOLD อัตโนมัติ</h4>
+      <p>หน้าจอแสดง badge เตือน แต่การตัดสินใจอยู่ที่พยาบาล — ต้องอ่าน badge ทุกครั้งก่อนให้ยา</p>
+    </div>
+    <div class="card">
+      <h4>2. Order Plan สร้างล่วงหน้าโดย Batch</h4>
+      <p>ถ้า Job <code>GenerateOrderPlanScheduleJob</code> ไม่รัน ตารางกิจกรรมของวันจะว่าง
+         — ให้ใช้ On-demand Activity ชั่วคราว และแจ้ง IT</p>
+    </div>
+    <div class="card">
+      <h4>3. ฟิลด์เงื่อนไขในแบบฟอร์มรับใหม่</h4>
+      <p>ถ้าเลือกตัวเลือกแล้วช่อง “ระบุ” ไม่เปิด/ไม่บังคับ แสดงว่าค่า enum frontend-backend ไม่ตรง
+         — เป็นปัญหา config ไม่ใช่ผู้ใช้</p>
+    </div>
+    <div class="card">
+      <h4>4. Ward ผิด = ไม่เห็นผู้ป่วย</h4>
+      <p>รายการผู้ป่วยและ Daily Overview กรองด้วย Ward ที่เลือกไว้เสมอ</p>
+    </div>
+    <div class="card">
+      <h4>5. Permission ต้องครบทั้งคู่</h4>
+      <p>route data ระบุ 2 permission เช่น <code>['NURSE','EMAR']</code> — ต้องมีครบตามที่ guard กำหนด
+         ไม่งั้นจะถูกเด้งออกจากหน้า</p>
+    </div>
+    <div class="card">
+      <h4>6. บันทึกค่าใช้จ่ายที่ Ward ไปเข้าการเงินทันที</h4>
+      <p>รายการที่บันทึกผ่าน other-expenses สร้าง <code>TB_FINANCES</code> จริง
+         และจะไปโผล่ในสรุปค่ารักษาของงานการเงิน (<a href="02-finance-tech.html">โมดูล 02</a>)</p>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><a href="06-smartipd-doctor-tech.html">← 06 Smart IPD Doctor</a></span>
+    <span>ถัดไป: <a href="08-smartipd-pharmacist-tech.html">08 Smart IPD Pharmacist →</a></span>
+  </div>
+
+</main>
+</div>
+<script src="assets/nav.js"></script>
+</body>
+</html>
